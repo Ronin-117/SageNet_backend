@@ -1,7 +1,6 @@
+fastapi
+uvicorn
 paho-mqtt
 influxdb-client
 firebase-admin
 python-dotenv
-fastapi
-uvicorn
-distutils
