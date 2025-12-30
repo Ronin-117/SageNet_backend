@@ -35,6 +35,8 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./firmware:/var/www/firmware
     command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000
 
 volumes:

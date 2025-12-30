@@ -1,0 +1,12 @@
+sagenet-energy.duckdns.org {
+    # 1. Serve Firmware Files
+    handle_path /firmware/* {
+        root * /var/www/firmware
+        file_server
+    }
+
+    # 2. Proxy everything else to the Python API
+    handle {
+        reverse_proxy api:8000
+    }
+}
