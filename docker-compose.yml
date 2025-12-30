@@ -4,22 +4,24 @@ services:
   bridge:
     build: .
     container_name: energy_bridge
-    command: python bridge.py
+    command: python app/main_bridge.py
     restart: always
     env_file: .env
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
+      - ./logs:/app/logs
 
   api:
     build: .
     container_name: energy_api
-    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000
     restart: always
     expose:
       - "8000"
     env_file: .env
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
+      - ./logs:/app/logs
 
   caddy:
     image: caddy:latest

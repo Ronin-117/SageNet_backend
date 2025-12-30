@@ -4,3 +4,4 @@ paho-mqtt
 influxdb-client
 firebase-admin
 python-dotenv
+pydantic-settings
