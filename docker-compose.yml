@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Service 1: The "Ingestor" (Never Sleeps)
+  # Service 1: The "Ingestor"
   bridge:
     build: .
     container_name: energy_bridge
@@ -17,8 +17,25 @@ services:
     container_name: energy_api
     command: uvicorn api:app --host 0.0.0.0 --port 8000
     restart: always
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000" # Only expose to Caddy, not the public internet directly
     env_file: .env
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
+
+  # Service 3: The Security Layer (Caddy)
+  caddy:
+    image: caddy:latest
+    container_name: caddy_proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000
+
+volumes:
+  caddy_data:
+  caddy_config:
