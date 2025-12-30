@@ -25,19 +25,17 @@ services:
     image: caddy:latest
     container_name: caddy_proxy
     restart: always
-    # --- ADD THIS DNS SECTION ---
+    # Keep the DNS fix!
     dns:
       - 8.8.8.8
       - 1.1.1.1
-    # ----------------------------
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    # Update the command to include your email to prevent being blocked anonymously
-    command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000 --email njytc001@gmail.com
+    command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000
 
 volumes:
   caddy_data:
