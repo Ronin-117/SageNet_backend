@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Service 1: The "Ingestor"
   bridge:
     build: .
     container_name: energy_bridge
@@ -11,30 +10,34 @@ services:
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
 
-  # Service 2: The "Commander" (API)
   api:
     build: .
     container_name: energy_api
     command: uvicorn api:app --host 0.0.0.0 --port 8000
     restart: always
     expose:
-      - "8000" # Only expose to Caddy, not the public internet directly
+      - "8000"
     env_file: .env
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
 
-  # Service 3: The Security Layer (Caddy)
   caddy:
     image: caddy:latest
     container_name: caddy_proxy
     restart: always
+    # --- ADD THIS DNS SECTION ---
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # ----------------------------
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000
+    # Update the command to include your email to prevent being blocked anonymously
+    command: caddy reverse-proxy --from https://sagenet-energy.duckdns.org --to api:8000 --email njytc001@gmail.com
 
 volumes:
   caddy_data:
