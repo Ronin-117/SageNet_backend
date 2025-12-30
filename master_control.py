@@ -46,7 +46,7 @@ def toggle_light(token, state):
     print(f"\n🚀 Sending Command: Relay 0 -> {target_state}...")
     
     # NEW URL STRUCTURE: /api/v1/devices/...
-    url = f"{BASE_URL}/api/v1/devices/devices/{DEVICE_ID}/control"
+    url = f"{BASE_URL}/api/v1/devices/{DEVICE_ID}/control"
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -75,7 +75,7 @@ def check_history(token):
     """Fetches recent energy data to prove Read Access"""
     print(f"\n📈 Fetching History for {DEVICE_ID}...")
     
-    url = f"{BASE_URL}/api/v1/devices/devices/{DEVICE_ID}/history"
+    url = f"{BASE_URL}/api/v1/devices/{DEVICE_ID}/history"
     
     headers = {
         "Authorization": f"Bearer {token}"
