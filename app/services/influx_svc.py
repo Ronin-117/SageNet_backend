@@ -80,23 +80,18 @@ class InfluxService:
     def get_history(self, device_id: str, minutes: int = 60) -> List[Dict[str, Any]]:
         """
         Fetches historical Voltage and Total Power for the requested duration.
-        Used by the Mobile App for graphs.
         """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # Flux Query:
-            # 1. Select Bucket & Time Range
-            # 2. Filter by Measurement & Device
-            # 3. Filter specific fields we want to graph (Voltage & Total Power)
-            # 4. Pivot (Turn rows into columns so JSON is easier to read)
+            # FIXED QUERY: Changed colKey -> columnKey
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{minutes}m)
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => r["_field"] == "voltage" or r["_field"] == "total_power")
-              |> pivot(rowKey:["_time"], colKey:["_field"], valueColumn:"_value")
+              |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
               |> keep(columns: ["_time", "voltage", "total_power"])
               |> limit(n: 100)
             '''
@@ -106,7 +101,6 @@ class InfluxService:
             history = []
             for table in result:
                 for record in table.records:
-                    # Clean up the timestamp to ISO format string
                     history.append({
                         "time": record.get_time().isoformat(),
                         "voltage": record["voltage"] if "voltage" in record else 0.0,
@@ -114,6 +108,10 @@ class InfluxService:
                     })
             
             return history
+
+        except Exception as e:
+            log.error(f"⚠️ Query Error for {device_id}: {e}")
+            raise e
 
         except Exception as e:
             log.error(f"⚠️ Query Error for {device_id}: {e}")

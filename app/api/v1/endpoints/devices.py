@@ -15,7 +15,6 @@ from app.core.exceptions import MqttPublishError, InfluxQueryError
 
 # Initialize Router
 router = APIRouter(
-    prefix="/devices",
     tags=["Devices"],
     responses={404: {"description": "Not found"}},
 )
