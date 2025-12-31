@@ -95,6 +95,56 @@ class InfluxService:
         except Exception as e:
             log.error(f"⚠️ Query Error for {device_id}: {e}")
             raise e
+    
+    def get_long_history(self, device_id: str, days: int) -> List[Dict[str, Any]]:
+        """
+        Fetches daily aggregated stats (Avg Voltage, Total Energy).
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            
+            # FLUX QUERY EXPLANATION:
+            # 1. Range: Last N days.
+            # 2. Filter: Voltage OR Power.
+            # 3. Aggregate: Group by 1 Day. 
+            #    - For Voltage: Calculate Mean (Average).
+            #    - For Power: Calculate Integral (Energy in Watt-Hours).
+            
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -{days}d)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["device_id"] == "{device_id}")
+              |> filter(fn: (r) => r["_field"] == "voltage" or r["_field"] == "total_power")
+              
+              |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
+              
+              |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
+              |> keep(columns: ["_time", "voltage", "total_power"])
+            '''
+            
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            history = []
+            for table in result:
+                for record in table.records:
+                    # Power is usually instantaneous Watts. 
+                    # If we averaged Watts over a day, we effectively get Avg Watts.
+                    # To get kWh roughly: Avg Watts * 24h / 1000.
+                    avg_watts = record["total_power"] if "total_power" in record else 0.0
+                    kwh = (avg_watts * 24) / 1000.0
+                    
+                    history.append({
+                        "date": record.get_time().date().isoformat(), # Returns YYYY-MM-DD
+                        "avg_voltage": round(record["voltage"], 1) if "voltage" in record else 0.0,
+                        "total_energy_kwh": round(kwh, 3)
+                    })
+            
+            return history
+
+        except Exception as e:
+            log.error(f"Long History Error: {e}")
+            raise e
 
     def close(self):
         self.client.close()

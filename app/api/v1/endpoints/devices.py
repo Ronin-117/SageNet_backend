@@ -7,11 +7,15 @@ from app.models.schemas import (
     RelayCommand, 
     CommandResponse, 
     HistoryResponse, 
-    HistoryPoint
+    HistoryPoint,
+    LongHistoryResponse,
+    DailyUsagePoint
 )
 from app.services.mqtt_svc import mqtt_svc
 from app.services.influx_svc import influx_svc
+from app.services.firebase_svc import firebase_svc
 from app.core.exceptions import MqttPublishError, InfluxQueryError
+
 
 # Initialize Router
 router = APIRouter(
@@ -64,6 +68,60 @@ def get_device_history(
             device=device_id,
             count=len(formatted_data),
             data=formatted_data
+        )
+    except Exception as e:
+        raise InfluxQueryError(str(e))
+
+@router.post("/claim", response_model=CommandResponse)
+def claim_device(
+    payload: DeviceClaimRequest,
+    uid: str = Depends(get_current_user)
+):
+    """
+    Links a device to the logged-in user.
+    Called when User scans QR code in App.
+    """
+    # We do NOT verify ownership here because the user doesn't own it YET.
+    # We verify the device simply exists or trust the ID provided.
+    
+    success = firebase_svc.claim_device(uid, payload.device_id, payload.friendly_name)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to register device")
+
+    return CommandResponse(
+        device=payload.device_id, 
+        action="Device Successfully Claimed", 
+        status="success"
+    )
+
+@router.get("/{device_id}/history/daily", response_model=LongHistoryResponse)
+def get_daily_history(
+    device_id: str,
+    days: int = 7,
+    uid: str = Depends(get_current_user)
+):
+    """
+    Get aggregated history for last N days (Max 30).
+    """
+    # 1. Validation
+    if days > 30:
+        raise HTTPException(status_code=400, detail="Max history is 30 days")
+        
+    # 2. Security
+    verify_ownership(device_id, uid)
+
+    # 3. Logic
+    try:
+        data = influx_svc.get_long_history(device_id, days)
+        
+        # Convert to Pydantic
+        formatted = [DailyUsagePoint(**p) for p in data]
+        
+        return LongHistoryResponse(
+            device_id=device_id,
+            days=days,
+            data=formatted
         )
     except Exception as e:
         raise InfluxQueryError(str(e))

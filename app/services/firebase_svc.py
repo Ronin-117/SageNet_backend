@@ -34,5 +34,28 @@ class FirebaseService:
         except Exception as e:
             log.warning(f"Auth Token Verification Failed: {e}")
             return None
+    
+    def claim_device(self, user_uid: str, device_id: str, name: str):
+        try:
+            # 1. Update the Device Document
+            device_ref = self.db.collection('devices').document(device_id)
+            device_ref.set({
+                'owner_id': user_uid,
+                'friendly_name': name,
+                'claimed_at': firestore.SERVER_TIMESTAMP,
+                'type': '4ch_switch' # Default type
+            }, merge=True) # merge=True prevents wiping existing stats
+
+            # 2. Add to User's list (Optional, but good for fast lookups)
+            user_ref = self.db.collection('users').document(user_uid)
+            user_ref.set({
+                'owned_devices': firestore.ArrayUnion([device_id])
+            }, merge=True)
+
+            log.info(f"Device {device_id} claimed by {user_uid}")
+            return True
+        except Exception as e:
+            log.error(f"Claim Error: {e}")
+            return False
 
 firebase_svc = FirebaseService()

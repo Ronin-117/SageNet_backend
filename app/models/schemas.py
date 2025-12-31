@@ -56,3 +56,17 @@ class DeviceStatus(BaseModel):
     device_id: str
     online: bool
     last_seen: str
+
+class DailyUsagePoint(BaseModel):
+    date: str
+    avg_voltage: float
+    total_energy_kwh: float
+    
+class LongHistoryResponse(BaseModel):
+    device_id: str
+    days: int
+    data: List[DailyUsagePoint]
+
+class DeviceClaimRequest(BaseModel):
+    device_id: str
+    friendly_name: str = "Smart Switch"
