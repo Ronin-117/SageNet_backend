@@ -151,7 +151,6 @@ class InfluxService:
         except Exception as e:
             log.error(f"Long History Error: {e}")
             raise e
-            raise e
 
     def close(self):
         self.client.close()
