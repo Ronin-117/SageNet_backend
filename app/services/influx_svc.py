@@ -111,7 +111,12 @@ class InfluxService:
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => r["_field"] == "voltage" or r["_field"] == "total_power")
-              |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
+              
+              // 1. createEmpty: true -> Generates rows even if device was unplugged all day
+              |> aggregateWindow(every: 1d, fn: mean, createEmpty: true)
+              
+              // 2. fill(value: 0.0) -> Replaces "null" with 0.0 so math works
+              |> fill(value: 0.0)
             '''
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
