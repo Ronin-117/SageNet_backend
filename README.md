@@ -61,7 +61,7 @@
  ### 1. Environment Setup
  Clone the repository and create your secrets file:
 
- bash  git clone https://github.com/YourRepo/sagenet-backend.git  cd sagenet-backend  cp .env.example .env 
+ bash  git clone https://github.com/Ronin-117/SageNet_backend.git  cd SageNet_backend  cp .env.example .env 
 
  Fill in your .env file:
  ini  # MQTT Config  MQTT_BROKER=your-cluster.hivemq.cloud  MQTT_PORT=8883  MQTT_USER=backend_service  MQTT_PASS=secure_password   # Database Config  INFLUX_URL=https://eu-central-1-1.aws.cloud2.influxdata.com  INFLUX_TOKEN=your_token  INFLUX_ORG=your_org  INFLUX_BUCKET=energy_raw   # Firebase  FIREBASE_CRED=serviceAccountKey.json 
