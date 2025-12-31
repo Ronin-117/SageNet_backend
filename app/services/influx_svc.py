@@ -98,52 +98,59 @@ class InfluxService:
     
     def get_long_history(self, device_id: str, days: int) -> List[Dict[str, Any]]:
         """
-        Fetches daily aggregated stats (Avg Voltage, Total Energy).
+        Fetches daily aggregated stats.
+        FIX: Performs pivoting in Python to avoid InfluxDB syntax errors.
         """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # FLUX QUERY EXPLANATION:
-            # 1. Range: Last N days.
-            # 2. Filter: Voltage OR Power.
-            # 3. Aggregate: Group by 1 Day. 
-            #    - For Voltage: Calculate Mean (Average).
-            #    - For Power: Calculate Integral (Energy in Watt-Hours).
-            
+            # 1. SIMPLE QUERY: No Pivot. Just aggregation.
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{days}d)
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => r["_field"] == "voltage" or r["_field"] == "total_power")
-              
               |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
-              
-              |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
-              |> keep(columns: ["_time", "voltage", "total_power"])
             '''
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
-            history = []
+            # 2. Python-side Processing
+            # We create a dictionary to group results by Date
+            daily_stats = {}
+
             for table in result:
                 for record in table.records:
-                    # Power is usually instantaneous Watts. 
-                    # If we averaged Watts over a day, we effectively get Avg Watts.
-                    # To get kWh roughly: Avg Watts * 24h / 1000.
-                    avg_watts = record["total_power"] if "total_power" in record else 0.0
-                    kwh = (avg_watts * 24) / 1000.0
+                    # Get Date (YYYY-MM-DD)
+                    date_key = record.get_time().date().isoformat()
+                    field_name = record.get_field()
+                    value = record.get_value() or 0.0
+
+                    # Initialize if new date
+                    if date_key not in daily_stats:
+                        daily_stats[date_key] = {
+                            "date": date_key, 
+                            "avg_voltage": 0.0, 
+                            "total_energy_kwh": 0.0
+                        }
                     
-                    history.append({
-                        "date": record.get_time().date().isoformat(), # Returns YYYY-MM-DD
-                        "avg_voltage": round(record["voltage"], 1) if "voltage" in record else 0.0,
-                        "total_energy_kwh": round(kwh, 3)
-                    })
+                    # Fill data
+                    if field_name == "voltage":
+                        daily_stats[date_key]["avg_voltage"] = round(value, 1)
+                    elif field_name == "total_power":
+                        # Convert Mean Watts to Daily kWh: Watts * 24h / 1000
+                        kwh = (value * 24.0) / 1000.0
+                        daily_stats[date_key]["total_energy_kwh"] = round(kwh, 3)
+
+            # 3. Convert dict to sorted list (Oldest to Newest)
+            history = sorted(daily_stats.values(), key=lambda x: x['date'])
             
             return history
 
         except Exception as e:
             log.error(f"Long History Error: {e}")
+            raise e
             raise e
 
     def close(self):
