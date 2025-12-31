@@ -9,7 +9,8 @@ from app.models.schemas import (
     HistoryResponse, 
     HistoryPoint,
     LongHistoryResponse,
-    DailyUsagePoint
+    DailyUsagePoint,
+    DeviceClaimRequest
 )
 from app.services.mqtt_svc import mqtt_svc
 from app.services.influx_svc import influx_svc
