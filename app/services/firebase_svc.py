@@ -58,4 +58,19 @@ class FirebaseService:
             log.error(f"Claim Error: {e}")
             return False
 
+    def update_device_state(self, device_id: str, states: list):
+        """
+        Updates the 'live_state' field in Firestore.
+        Used by the App to show Green/Grey buttons.
+        """
+        try:
+            doc_ref = self.db.collection('devices').document(device_id)
+            doc_ref.set({
+                'live_state': states, # e.g. [1, 0, 0, 1]
+                'last_contact': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            # log.info(f"State updated for {device_id}: {states}") # Optional log
+        except Exception as e:
+            log.error(f"Firestore State Update Failed: {e}")
+
 firebase_svc = FirebaseService()

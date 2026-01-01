@@ -45,7 +45,7 @@ class MqttService:
         payload = json.dumps({"i": index, "s": state})
         
         try:
-            info = self.client.publish(topic, payload, qos=1)
+            info = self.client.publish(topic, payload, qos=1,retain=False)
             info.wait_for_publish(timeout=2.0) # Wait up to 2s for ack
             
             if info.rc == mqtt.MQTT_ERR_SUCCESS:

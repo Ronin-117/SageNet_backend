@@ -34,6 +34,11 @@ def on_message(client, userdata, msg):
             else:
                 log.warning(f"Unknown Device: {device_id}")
                 return
+        
+        # Update live state
+        if 's' in payload:
+            # payload['s'] is [1, 0, 1, 0]
+            firebase_svc.update_device_state(device_id, payload['s'])
 
         # Storage
         influx_svc.write_telemetry(device_id, owner_id, payload)
