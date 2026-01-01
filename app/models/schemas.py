@@ -70,3 +70,13 @@ class LongHistoryResponse(BaseModel):
 class DeviceClaimRequest(BaseModel):
     device_id: str
     friendly_name: str = "Smart Switch"
+
+class ActivityPoint(BaseModel):
+    time: str          # ISO Timestamp of the 30-min block
+    value: float       # 0.0 to 1.0 (Percentage of time active)
+
+class ActivityResponse(BaseModel):
+    device_id: str
+    resolution: str = "30m"
+    # Returns a dictionary: "0": [points], "1": [points]
+    channels: Dict[str, List[ActivityPoint]]

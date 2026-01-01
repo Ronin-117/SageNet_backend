@@ -156,6 +156,57 @@ class InfluxService:
         except Exception as e:
             log.error(f"Long History Error: {e}")
             raise e
+    
+    def get_activity_patterns(self, device_id: str, days: int) -> Dict[str, List[Dict]]:
+        """
+        Fetches state activity grouped by 30-minute blocks.
+        Used for Heatmaps/Usage Patterns.
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            
+            # FLUX QUERY:
+            # 1. Filter: specific device AND fields starting with "state_"
+            # 2. Aggregate: Average (mean) over 30 mins.
+            #    - Mean works perfectly: 1=Always On, 0=Always Off, 0.5=Half On.
+            # 3. Fill: If unplugged, assume Off (0.0).
+            
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -{days}d)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["device_id"] == "{device_id}")
+              |> filter(fn: (r) => r["_field"] =~ /state_/)
+              |> aggregateWindow(every: 30m, fn: mean, createEmpty: true)
+              |> fill(value: 0.0)
+            '''
+            
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            # Organize by Channel Index
+            # Structure: { "0": [points...], "1": [points...] }
+            channels_data = {}
+
+            for table in result:
+                for record in table.records:
+                    field = record.get_field() # e.g., "state_0"
+                    
+                    # Extract index from "state_0" -> "0"
+                    channel_index = field.split("_")[1]
+                    
+                    if channel_index not in channels_data:
+                        channels_data[channel_index] = []
+                    
+                    channels_data[channel_index].append({
+                        "time": record.get_time().isoformat(),
+                        "value": round(record.get_value(), 2) # 0.0 to 1.0
+                    })
+            
+            return channels_data
+
+        except Exception as e:
+            log.error(f"Activity Query Error: {e}")
+            raise e
 
     def close(self):
         self.client.close()

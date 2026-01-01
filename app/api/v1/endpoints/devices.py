@@ -10,7 +10,9 @@ from app.models.schemas import (
     HistoryPoint,
     LongHistoryResponse,
     DailyUsagePoint,
-    DeviceClaimRequest
+    DeviceClaimRequest,
+    ActivityResponse,
+    ActivityPoint
 )
 from app.services.mqtt_svc import mqtt_svc
 from app.services.influx_svc import influx_svc
@@ -123,6 +125,32 @@ def get_daily_history(
             device_id=device_id,
             days=days,
             data=formatted
+        )
+    except Exception as e:
+        raise InfluxQueryError(str(e))
+
+@router.get("/{device_id}/activity", response_model=ActivityResponse)
+def get_device_activity(
+    device_id: str,
+    days: int = 7,
+    uid: str = Depends(get_current_user)
+):
+    """
+    Get ON/OFF patterns for the last N days (Max 30).
+    Resolution: 30 minutes.
+    Values: 0.0 (Off) to 1.0 (On).
+    """
+    if days > 30:
+        raise HTTPException(status_code=400, detail="Max history is 30 days")
+        
+    verify_ownership(device_id, uid)
+
+    try:
+        data = influx_svc.get_activity_patterns(device_id, days)
+        
+        return ActivityResponse(
+            device_id=device_id,
+            channels=data
         )
     except Exception as e:
         raise InfluxQueryError(str(e))
