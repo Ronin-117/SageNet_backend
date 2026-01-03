@@ -9,7 +9,7 @@ log = setup_logger("API_Main")
 # 2. Initialize FastAPI
 app = FastAPI(
     title="Smart Energy API Pro",
-    version="2.2.0",
+    version="2.3.0",
     description="Enterprise-grade IoT Backend for SageNet Energy",
     docs_url="/docs",
     redoc_url="/redoc"
