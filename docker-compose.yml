@@ -10,6 +10,8 @@ services:
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
       - ./logs:/app/logs
+    networks:
+      - web_network
 
   api:
     build: .
@@ -22,25 +24,10 @@ services:
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
       - ./logs:/app/logs
+    networks:
+      - web_network
 
-  caddy:
-    image: caddy:latest
-    container_name: caddy_proxy
-    restart: always
-    # Keep the DNS fix!
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - ./firmware:/var/www/firmware
-    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
 
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  web_network:
+    external: true
