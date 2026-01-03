@@ -9,7 +9,7 @@ log = setup_logger("API_Main")
 # 2. Initialize FastAPI
 app = FastAPI(
     title="Smart Energy API Pro",
-    version="2.2.1",
+    version="2.2.0",
     description="Enterprise-grade IoT Backend for SageNet Energy",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -33,5 +33,5 @@ async def shutdown_event():
 
 @app.get("/", tags=["Health"])
 def health_check():
-    """Load Balancer Health Check"""
-    return {"status": "healthy", "version": "2.2.0"}
+    # Change the version string to something unique
+    return {"status": "healthy", "version": "2.3.0-AUTOMATED-TEST"}
