@@ -6,6 +6,9 @@ services:
     container_name: energy_bridge
     command: python app/main_bridge.py
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     env_file: .env
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
@@ -18,6 +21,9 @@ services:
     container_name: energy_api
     command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     # --- CRITICAL CHANGE ---
     ports:
       - "127.0.0.1:8000:8000" # Maps Container Port 8000 -> Host Port 8000
