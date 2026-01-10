@@ -6,6 +6,7 @@ from app.services.firebase_svc import firebase_svc
 from datetime import datetime, timedelta
 
 router = APIRouter()
+print("Analytics endpoint loaded")
 
 @router.get("/{device_id}/bill", response_model=BillPrediction)
 def get_live_bill(
