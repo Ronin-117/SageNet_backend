@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   bridge:
+    build: . 
     image: sagenet_backend-bridge:latest
     container_name: energy_bridge
     command: python app/main_bridge.py
@@ -15,6 +16,7 @@ services:
       - ./logs:/app/logs
 
   api:
+    build: . 
     image: sagenet_backend-api:latest
     container_name: energy_api
     # This command opens Port 8000 directly on the server
