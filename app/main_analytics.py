@@ -70,18 +70,34 @@ def job_anomaly_lifecycle():
 
                 # --- STATE: TRAINING ---
                 elif status == 'training':
-                    # Fetch active power data (Hours = Duration of learning)
-                    # We assume 24h default for now, or calculate from start time
-                    data = influx_svc.get_training_data(device_id, channel, hours=24)
+                    # Fetch active power data
+                    # We look back 7 days (168h) by default to ensure we catch ALL recent data
+                    # regardless of how long the learning period was extended.
+                    data = influx_svc.get_training_data(device_id, channel, hours=168)
                     
-                    if len(data) > 100: # Minimum points required
+                    # Requirement: 5 sequences of 24 points = 120 points
+                    min_points = settings.ANOMALY_SEQUENCE_LENGTH * 5
+                    
+                    if len(data) >= min_points: 
                         threshold = anomaly_svc.train_model(device_id, channel, data)
                         if threshold > 0:
                             firebase_svc.update_ai_status(
                                 device_id, channel, "monitoring", threshold=threshold
                             )
                     else:
-                        log.warning(f"[{device_id} Ch{channel}] Not enough data to train. Waiting...")
+                        # --- SELF-HEALING LOGIC ---
+                        log.warning(f"[{device_id} Ch{channel}] Insufficient data ({len(data)}/{min_points}). Extending learning.")
+                        
+                        # Extend deadline by 12 hours
+                        new_end_time = datetime.now(timezone.utc) + timedelta(hours=12)
+                        
+                        # Switch back to LEARNING
+                        firebase_svc.update_ai_status(
+                            device_id=device_id, 
+                            channel=channel, 
+                            status="learning", 
+                            training_end=new_end_time
+                        )
 
                 # --- STATE: MONITORING ---
                 elif status == 'monitoring':
