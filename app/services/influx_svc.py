@@ -208,6 +208,65 @@ class InfluxService:
             log.error(f"Activity Query Error: {e}")
             raise e
 
+    def get_training_data(self, device_id: str, channel: int, hours: int) -> List[float]:
+        """
+        Fetches raw POWER data for training. 
+        Filters out values < 5.0 Watts (Device OFF/Standby) to ensure model learns active patterns.
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            # Query: Get Power for specific channel, filtered by value > 5W
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -{hours}h)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["device_id"] == "{device_id}")
+              |> filter(fn: (r) => r["_field"] == "power_{channel}")
+              |> filter(fn: (r) => r["_value"] > 5.0) 
+            '''
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            data = []
+            for table in result:
+                for record in table.records:
+                    data.append(record.get_value())
+            
+            return data
+        except Exception as e:
+            log.error(f"Training Data Fetch Error: {e}")
+            return []
+
+    def get_inference_sequence(self, device_id: str, channel: int) -> List[float]:
+        """
+        Fetches exact sequence length for live detection.
+        Returns oldest-to-newest list.
+        """
+        limit = settings.ANOMALY_SEQUENCE_LENGTH + 1 # Need N history + 1 target
+        try:
+            bucket = settings.INFLUX_BUCKET
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -2h) # Look back enough to find N points
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["device_id"] == "{device_id}")
+              |> filter(fn: (r) => r["_field"] == "power_{channel}")
+              |> sort(columns: ["_time"], desc: true) # Get latest first
+              |> limit(n: {limit})
+            '''
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            data = []
+            for table in result:
+                for record in table.records:
+                    data.append(record.get_value())
+            
+            # Influx gave us Newest->Oldest. AI needs Oldest->Newest.
+            return data[::-1] 
+
+        except Exception as e:
+            log.error(f"Inference Data Fetch Error: {e}")
+            return []
+
     def close(self):
         self.client.close()
 

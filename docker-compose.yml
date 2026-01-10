@@ -27,3 +27,18 @@ services:
     volumes:
       - ./serviceAccountKey.json:/app/serviceAccountKey.json
       - ./logs:/app/logs
+  
+  analytics:
+    build: .
+    image: sagenet_backend-analytics:latest
+    container_name: energy_analytics
+    # Runs the analytics script instead of API/Bridge
+    command: python app/main_analytics.py
+    network_mode: "host"
+    restart: always
+    env_file: .env
+    volumes:
+      - ./serviceAccountKey.json:/app/serviceAccountKey.json
+      - ./logs:/app/logs
+      # Map the ML models folder so they survive restarts
+      - ./app/ml:/app/app/ml
