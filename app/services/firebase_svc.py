@@ -2,8 +2,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from app.core.config import settings
 from app.core.logger import setup_logger
-from datetime import datetime
-from pytz import timezone
+from datetime import datetime, timezone
 
 log = setup_logger("FirebaseService")
 
