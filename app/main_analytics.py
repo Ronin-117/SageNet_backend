@@ -27,104 +27,109 @@ def job_calculate_bills():
 def job_anomaly_lifecycle():
     """
     Runs every minute.
-    Manages the State Machine: LEARNING -> TRAINING -> MONITORING
+    ISOLATION UPDATE: Each device/channel is wrapped in try/except.
     """
+    log.info("--- Starting Anomaly Cycle ---")
+    
     try:
+        # Fetch all devices snapshot
         devices_ref = firebase_svc.db.collection('devices')
+        all_devices = list(devices_ref.stream())
         
-        for doc in devices_ref.stream():
-            dev_data = doc.to_dict()
+        for doc in all_devices:
             device_id = doc.id
             
-            # 1. Check Connectivity (Skip if offline > 5 mins)
-            last_contact = dev_data.get('last_contact')
-            if last_contact:
-                # Firestore timestamp to datetime
-                last_seen = last_contact.replace(tzinfo=timezone.utc)
-                if (datetime.now(timezone.utc) - last_seen).total_seconds() > 300:
-                    continue # Offline, skip
+            # --- ISOLATION BLOCK: DEVICE LEVEL ---
+            try:
+                dev_data = doc.to_dict()
+                
+                # 1. Check Connectivity
+                last_contact = dev_data.get('last_contact')
+                if last_contact:
+                    last_seen = last_contact.replace(tzinfo=timezone.utc)
+                    if (datetime.now(timezone.utc) - last_seen).total_seconds() > 300:
+                        # log.debug(f"Skipping {device_id} (Offline)")
+                        continue 
 
-            # 2. Iterate Channels
-            ai_config = dev_data.get('ai_config', {})
-            live_state = dev_data.get('live_state', [0]*4)
-            last_switched = dev_data.get('last_switched_on', [None]*4)
+                ai_config = dev_data.get('ai_config', {})
+                live_state = dev_data.get('live_state', [0]*4)
+                last_switched = dev_data.get('last_switched_on', [None]*4)
 
-            for ch_str, config in ai_config.items():
-                channel = int(ch_str)
-                status = config.get('status', 'disabled')
-
-                # --- STATE: LEARNING ---
-                if status == 'learning':
-                    # Check if time is up
-                    training_end_str = config.get('training_end') # Firestore might return datetime or str
+                # 2. Iterate Channels
+                for ch_str, config in ai_config.items():
+                    channel = int(ch_str)
                     
-                    # Handle Firestore Timestamp vs ISO String
-                    if isinstance(training_end_str, str):
-                        training_end = datetime.fromisoformat(training_end_str)
-                    else:
-                        training_end = training_end_str
-
-                    if training_end and datetime.now(timezone.utc) > training_end.replace(tzinfo=timezone.utc):
-                        log.info(f"[{device_id} Ch{channel}] Learning complete. Switching to TRAINING.")
-                        firebase_svc.update_ai_status(device_id, channel, "training")
-
-                # --- STATE: TRAINING ---
-                elif status == 'training':
-                    # Fetch active power data
-                    # We look back 7 days (168h) by default to ensure we catch ALL recent data
-                    # regardless of how long the learning period was extended.
-                    data = influx_svc.get_training_data(device_id, channel, hours=168)
-                    
-                    # Requirement: 5 sequences of 24 points = 120 points
-                    min_points = settings.ANOMALY_SEQUENCE_LENGTH * 5
-                    
-                    if len(data) >= min_points: 
-                        threshold = anomaly_svc.train_model(device_id, channel, data)
-                        if threshold > 0:
-                            firebase_svc.update_ai_status(
-                                device_id, channel, "monitoring", threshold=threshold
-                            )
-                    else:
-                        # --- SELF-HEALING LOGIC ---
-                        log.warning(f"[{device_id} Ch{channel}] Insufficient data ({len(data)}/{min_points}). Extending learning.")
+                    # --- ISOLATION BLOCK: CHANNEL LEVEL ---
+                    try:
+                        status = config.get('status', 'disabled')
                         
-                        # Extend deadline by 12 hours
-                        new_end_time = datetime.now(timezone.utc) + timedelta(hours=12)
-                        
-                        # Switch back to LEARNING
-                        firebase_svc.update_ai_status(
-                            device_id=device_id, 
-                            channel=channel, 
-                            status="learning", 
-                            training_end=new_end_time
-                        )
+                        # Skip disabled to reduce log noise
+                        if status == 'disabled': 
+                            continue
 
-                # --- STATE: MONITORING ---
-                elif status == 'monitoring':
-                    # Only check if physically ON
-                    if channel < len(live_state) and live_state[channel] == 1:
-                        
-                        # WARM-UP CHECK
-                        warmup_ok = True
-                        if channel < len(last_switched) and last_switched[channel]:
-                            switched_time = datetime.fromisoformat(last_switched[channel])
-                            diff_min = (datetime.now(timezone.utc) - switched_time).total_seconds() / 60
+                        log.info(f"Processing {device_id} Ch{channel} [{status}]")
+
+                        # --- STATE: LEARNING ---
+                        if status == 'learning':
+                            training_end_str = config.get('training_end')
+                            if isinstance(training_end_str, str):
+                                training_end = datetime.fromisoformat(training_end_str)
+                            else:
+                                training_end = training_end_str
+
+                            if training_end and datetime.now(timezone.utc) > training_end.replace(tzinfo=timezone.utc):
+                                log.info(f"[{device_id} Ch{channel}] Time up. Switching to TRAINING.")
+                                firebase_svc.update_ai_status(device_id, channel, "training")
+
+                        # --- STATE: TRAINING ---
+                        elif status == 'training':
+                            # Look back 7 days to gather sparse data
+                            data = influx_svc.get_training_data(device_id, channel, hours=168)
                             
-                            if diff_min < settings.ANOMALY_WARMUP_MINUTES:
-                                warmup_ok = False
-                                # log.debug(f"Warming up... {diff_min:.1f}m")
-
-                        if warmup_ok:
-                            # Fetch sequence
-                            seq = influx_svc.get_inference_sequence(device_id, channel)
-                            is_anomaly, error, thresh = anomaly_svc.detect(device_id, channel, seq)
+                            min_points = settings.ANOMALY_SEQUENCE_LENGTH * 5
                             
-                            if is_anomaly:
-                                log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
-                                # TODO: Send Firebase Notification here
-    
+                            if len(data) >= min_points: 
+                                log.info(f"[{device_id} Ch{channel}] Training with {len(data)} points...")
+                                threshold = anomaly_svc.train_model(device_id, channel, data)
+                                if threshold > 0:
+                                    firebase_svc.update_ai_status(
+                                        device_id, channel, "monitoring", threshold=threshold
+                                    )
+                            else:
+                                log.warning(f"[{device_id} Ch{channel}] Insufficient Data ({len(data)}). Extending.")
+                                new_end_time = datetime.now(timezone.utc) + timedelta(hours=12)
+                                firebase_svc.update_ai_status(device_id, channel, "learning", training_end=new_end_time)
+
+                        # --- STATE: MONITORING ---
+                        elif status == 'monitoring':
+                            if channel < len(live_state) and live_state[channel] == 1:
+                                
+                                # Warm-up Check
+                                warmup_ok = True
+                                if channel < len(last_switched) and last_switched[channel]:
+                                    switched_time = datetime.fromisoformat(last_switched[channel])
+                                    diff_min = (datetime.now(timezone.utc) - switched_time).total_seconds() / 60
+                                    
+                                    if diff_min < settings.ANOMALY_WARMUP_MINUTES:
+                                        warmup_ok = False
+                                
+                                if warmup_ok:
+                                    seq = influx_svc.get_inference_sequence(device_id, channel)
+                                    is_anomaly, error, thresh = anomaly_svc.detect(device_id, channel, seq)
+                                    
+                                    if is_anomaly:
+                                        log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
+
+                    except Exception as e:
+                        log.error(f"Error processing Channel {channel} on {device_id}: {e}")
+                        continue # Continue to next channel
+
+            except Exception as e:
+                log.error(f"Error processing Device {device_id}: {e}")
+                continue # Continue to next device
+
     except Exception as e:
-        log.error(f"Anomaly Lifecycle Error: {e}")
+        log.error(f"CRITICAL LOOP FAILURE: {e}")
 
 # --- MAIN LOOP ---
 if __name__ == "__main__":
