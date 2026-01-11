@@ -119,6 +119,11 @@ def job_anomaly_lifecycle():
                                     
                                     if is_anomaly:
                                         log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
+                                        firebase_svc.send_alert(
+                                            device_id=device_id,
+                                            title="⚠️ Energy Anomaly Detected",
+                                            body=f"Unusual power usage detected on Channel {channel}. Check your appliance."
+                                        )
 
                     except Exception as e:
                         log.error(f"Error processing Channel {channel} on {device_id}: {e}")

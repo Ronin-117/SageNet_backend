@@ -1,5 +1,5 @@
 import firebase_admin
-from firebase_admin import credentials, firestore, auth
+from firebase_admin import credentials, firestore, auth,messaging
 from app.core.config import settings
 from app.core.logger import setup_logger
 from datetime import datetime, timezone
@@ -125,5 +125,75 @@ class FirebaseService:
         """Helper to get full document for the Analytics Engine"""
         doc = self.db.collection('devices').document(device_id).get()
         return doc.to_dict() if doc.exists else None
+
+    def register_fcm_token(self, user_uid: str, token: str):
+        """
+        Saves the phone's notification token to the user profile.
+        Uses ArrayUnion to allow multiple devices (Phone + Tablet).
+        """
+        try:
+            self.db.collection('users').document(user_uid).set({
+                'fcm_tokens': firestore.ArrayUnion([token])
+            }, merge=True)
+            log.info(f"FCM Token registered for {user_uid}")
+            return True
+        except Exception as e:
+            log.error(f"Token Reg Error: {e}")
+            return False
+
+    def send_alert(self, device_id: str, title: str, body: str):
+        """
+        Sends a Push Notification to the device owner.
+        Includes Rate Limiting (Max 1 alert per hour per device).
+        """
+        try:
+            # 1. Get Device & Owner
+            doc = self.db.collection('devices').document(device_id).get()
+            if not doc.exists: return
+            
+            data = doc.to_dict()
+            owner_id = data.get('owner_id')
+            last_alert = data.get('last_alert_sent')
+
+            # 2. Rate Limiting (Cool-down check)
+            if last_alert:
+                # Convert Firestore timestamp to datetime
+                last_time = last_alert.replace(tzinfo=timezone.utc)
+                diff_min = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
+                
+                if diff_min < 60: # 1 Hour Cool-down
+                    log.info(f"Alert suppressed (Cool-down active for {device_id})")
+                    return
+
+            # 3. Get Owner's Tokens
+            user_doc = self.db.collection('users').document(owner_id).get()
+            if not user_doc.exists: return
+            
+            tokens = user_doc.to_dict().get('fcm_tokens', [])
+            if not tokens:
+                log.warning(f"No FCM tokens found for user {owner_id}")
+                return
+
+            # 4. Construct Message
+            message = messaging.MulticastMessage(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body
+                ),
+                data={"device_id": device_id}, # Metadata for app click action
+                tokens=tokens
+            )
+
+            # 5. Send
+            response = messaging.send_multicast(message)
+            log.info(f"Sent alert to {response.success_count} devices.")
+
+            # 6. Update Last Alert Timestamp
+            self.db.collection('devices').document(device_id).update({
+                'last_alert_sent': firestore.SERVER_TIMESTAMP
+            })
+
+        except Exception as e:
+            log.error(f"Notification Failed: {e}")
 
 firebase_svc = FirebaseService()
