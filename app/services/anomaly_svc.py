@@ -98,17 +98,22 @@ class AnomalyService:
 
     def detect(self, device_id: str, channel: int, recent_data: list):
         """
-        Loads model, runs inference, returns (is_anomaly, error).
+        Loads model, runs inference, returns (is_anomaly, error, threshold).
         """
         seq_len = settings.ANOMALY_SEQUENCE_LENGTH
+        
+        # CHECK 1: Not enough data
         if len(recent_data) < (seq_len + 1):
-            return False, 0.0
+            # MUST RETURN 3 VALUES
+            return False, 0.0, 0.0
 
         model_path = self._get_model_path(device_id, channel)
         thresh_path = self._get_thresh_path(device_id, channel)
 
+        # CHECK 2: Model missing
         if not os.path.exists(model_path) or not os.path.exists(thresh_path):
-            return False, 0.0
+            # MUST RETURN 3 VALUES
+            return False, 0.0, 0.0
 
         try:
             # 1. Load Threshold
@@ -121,8 +126,8 @@ class AnomalyService:
             model.eval()
 
             # 3. Inference
-            input_seq = recent_data[-(seq_len+1):-1] # Past N points
-            target = recent_data[-1]                 # Current point
+            input_seq = recent_data[-(seq_len+1):-1] 
+            target = recent_data[-1]                 
             
             inp_tensor = torch.tensor(input_seq, dtype=torch.float32).view(1, seq_len, 1)
             
@@ -136,10 +141,12 @@ class AnomalyService:
             del model
             gc.collect()
 
+            # SUCCESS RETURN (3 Values)
             return is_anomaly, error, threshold
 
         except Exception as e:
             log.error(f"Inference failed: {e}")
+            # ERROR RETURN (MUST BE 3 VALUES)
             return False, 0.0, 0.0
 
 anomaly_svc = AnomalyService()
