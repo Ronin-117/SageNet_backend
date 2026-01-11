@@ -239,18 +239,18 @@ class InfluxService:
     def get_inference_sequence(self, device_id: str, channel: int) -> List[float]:
         """
         Fetches exact sequence length for live detection.
-        Returns oldest-to-newest list.
         """
-        limit = settings.ANOMALY_SEQUENCE_LENGTH + 1 # Need N history + 1 target
+        limit = settings.ANOMALY_SEQUENCE_LENGTH + 1
         try:
             bucket = settings.INFLUX_BUCKET
+            # FIX: Removed comments inside the query string
             query = f'''
             from(bucket: "{bucket}")
-              |> range(start: -2h) # Look back enough to find N points
+              |> range(start: -2h)
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => r["_field"] == "power_{channel}")
-              |> sort(columns: ["_time"], desc: true) # Get latest first
+              |> sort(columns: ["_time"], desc: true)
               |> limit(n: {limit})
             '''
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
@@ -260,7 +260,6 @@ class InfluxService:
                 for record in table.records:
                     data.append(record.get_value())
             
-            # Influx gave us Newest->Oldest. AI needs Oldest->Newest.
             return data[::-1] 
 
         except Exception as e:

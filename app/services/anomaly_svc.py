@@ -140,6 +140,6 @@ class AnomalyService:
 
         except Exception as e:
             log.error(f"Inference failed: {e}")
-            return False, 0.0
+            return False, 0.0, 0.0
 
 anomaly_svc = AnomalyService()
