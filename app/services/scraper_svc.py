@@ -103,67 +103,61 @@ class ScraperService:
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             
-            # 1. Find Product Cards (Try data-id first, then generic grid wrapper)
+            # Container Strategy
             items = soup.select("div[data-id]")
             if not items:
                 items = soup.select("div._1AtVbE")
 
             log.info(f"Flipkart RAW items: {len(items)}")
 
-            for i, item in enumerate(items):
-                if len(results) >= 5: break # Stop after 5 good items
-                
+            for i, item in enumerate(items[:3]): # Check first 3 only for debug
                 try:
-                    # --- STRATEGY A: Specific Classes (Fastest) ---
+                    # 1. Attempt Extraction (Add 'wjcEIp' - new 2025 class)
                     title_el = (
                         item.select_one("div.KzDlHZ") or 
                         item.select_one("a.s1Q9rs") or 
-                        item.select_one("div._4rR01T")
+                        item.select_one("div._4rR01T") or
+                        item.select_one("a.wjcEIp") 
                     )
+                    
                     price_el = (
                         item.select_one("div.Nx9bqj") or 
                         item.select_one("div._30jeq3")
                     )
 
-                    # --- STRATEGY B: Generic Attributes (Fallback) ---
-                    # Flipkart links often have title="Product Name"
-                    if not title_el:
-                        title_el = item.select_one("a[title]")
-                    
-                    # Search for any text starting with ₹
-                    if not price_el:
-                        # Find all divs, look for one starting with ₹
-                        for div in item.find_all("div"):
-                            if div.text.strip().startswith("₹"):
-                                price_el = div
-                                break
-
-                    # --- PARSING ---
+                    # 2. SUCCESS PATH
                     if title_el and price_el:
-                        # Clean Title (Attributes often cleaner than text)
                         name = title_el.get("title") if title_el.has_attr("title") else title_el.text.strip()
-                        
-                        # Clean Price
                         p_text = price_el.text.replace("₹", "").replace(",", "").strip()
                         
-                        if name and p_text.isdigit():
+                        if p_text.isdigit():
                             results.append({
                                 "name": name,
                                 "price": float(p_text),
                                 "source": "Flipkart"
                             })
-                        else:
-                            # Log failed parse for debugging
-                            # log.warning(f"Flipkart Item {i}: Found elements but parsing failed. Text: {p_text}")
-                            pass
-                            
+                            continue # Success, move to next item
+
+                    # 3. FAILURE PATH (Debug Dump)
+                    # If we reach here, we found the Card, but missed Title or Price.
+                    # We print the HTML structure so we can fix it.
+                    log.warning(f"--- DEBUG FLIPKART ITEM {i} ---")
+                    
+                    # Print class names of the item to help identify it
+                    classes = item.get("class", [])
+                    log.warning(f"Container Classes: {classes}")
+                    
+                    # Print first 500 chars of HTML (Enough to see Title/Price classes)
+                    html_snippet = item.prettify()[:1000].replace("\n", " ")
+                    log.warning(f"HTML: {html_snippet}")
+                    log.warning("-------------------------------")
+
                 except Exception as e:
-                    # log.error(f"Flipkart Item {i} Error: {e}")
-                    continue
+                    log.error(f"Item Error: {e}")
             
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
             
         return results
-
+        
 scraper_svc = ScraperService()
