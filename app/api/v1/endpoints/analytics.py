@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.dependencies import get_current_user, verify_ownership
-from app.models.analytics_schemas import BillPrediction, AnalyticsResponse, TrainRequest, AIStatusResponse
+from app.models.analytics_schemas import BillPrediction, AnalyticsResponse, TrainRequest, AIStatusResponse, ShopRequest, ShopResponse
 from app.services.analytics_svc import analytics_svc
 from app.services.firebase_svc import firebase_svc
+from app.services.queue_svc import queue_svc
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -91,4 +92,29 @@ def get_ai_status(
     return AIStatusResponse(
         device_id=device_id,
         channels=ai_config
+    )
+
+# --- SHOPPING ENDPOINT ---
+@router.post("/shop", response_model=ShopResponse)
+def trigger_shopping_agent(
+    payload: ShopRequest,
+    uid: str = Depends(get_current_user)
+):
+    """
+    Triggers the RAG Pipeline:
+    1. Pushes job to Redis.
+    2. Background Worker scrapes Amazon/Flipkart.
+    3. AI analyzes results (Future).
+    """
+    verify_ownership("global", uid) # Optional: Check if user is allowed
+    
+    job_id = queue_svc.push_scraper_job(payload.query, uid)
+    
+    if not job_id:
+        raise HTTPException(status_code=500, detail="Failed to queue job. Redis unavailable.")
+
+    return ShopResponse(
+        job_id=job_id,
+        status="queued",
+        message="Scraping started. Check results in Firestore/Notifications later."
     )

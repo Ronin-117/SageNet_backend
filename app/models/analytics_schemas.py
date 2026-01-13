@@ -41,3 +41,12 @@ class AIChannelConfig(BaseModel):
 class AIStatusResponse(BaseModel):
     device_id: str
     channels: Dict[str, AIChannelConfig]
+
+class ShopRequest(BaseModel):
+    query: str = Field(..., min_length=3, description="Product name (e.g., 'BLDC Fan')")
+    budget: float = Field(..., gt=0, description="Max price in INR")
+
+class ShopResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
