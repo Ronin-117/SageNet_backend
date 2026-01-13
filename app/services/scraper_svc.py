@@ -32,7 +32,9 @@ class ScraperService:
         driver = None
         try:
             driver = self._get_driver()
+            # Scrape Amazon
             results.extend(self._scrape_amazon(driver, query))
+            # Scrape Flipkart
             results.extend(self._scrape_flipkart(driver, query))
         except Exception as e:
             log.error(f"Global Scraper Error: {e}")
@@ -48,7 +50,9 @@ class ScraperService:
             driver.get(url)
             time.sleep(2)
 
-            if "Robot" in driver.title:
+            # Check for Captcha
+            if "Robot" in driver.title or "Captcha" in driver.title:
+                log.warning("⚠️ Amazon blocked us (Robot Check).")
                 return []
 
             try:
@@ -58,38 +62,49 @@ class ScraperService:
             soup = BeautifulSoup(driver.page_source, "html.parser")
             items = soup.select("div[data-component-type='s-search-result']")
             
+            log.info(f"Amazon RAW items: {len(items)}")
+
             for item in items[:5]: 
                 try:
-                    # 1. Title
-                    title_el = item.select_one("h2 a span")
+                    # 1. Title (Multiple Strategies)
+                    title_el = item.select_one("h2 span") or item.select_one("span.a-text-normal")
                     if not title_el: continue
                     name = title_el.text.strip()
 
-                    # 2. Price
-                    price_el = item.select_one(".a-price-whole")
-                    if not price_el: continue
-                    price = float(price_el.text.replace(",", "").strip())
+                    # 2. Price (Regex Strategy - Robust)
+                    price = 0.0
+                    raw_text = item.text
+                    # Find ₹ followed by numbers
+                    match = re.search(r'₹\s?([0-9,]+)', raw_text)
+                    if match:
+                        price = float(match.group(1).replace(",", ""))
+                    else:
+                        # Fallback CSS
+                        price_el = item.select_one(".a-price-whole")
+                        if price_el:
+                            price = float(price_el.text.replace(",", "").strip())
 
-                    # 3. Rating (NEW)
+                    # 3. Rating (Regex Strategy)
                     rating = "N/A"
-                    rating_el = item.select_one("span.a-icon-alt")
-                    if rating_el:
-                        # Text is like "4.5 out of 5 stars" -> Get "4.5"
-                        rating = rating_el.text.split(" ")[0]
+                    # Look for "4.5 out of 5 stars" pattern
+                    rating_match = re.search(r'(\d\.\d)\s?out of 5 stars', item.text)
+                    if rating_match:
+                        rating = rating_match.group(1)
 
-                    # 4. Link (NEW)
+                    # 4. Link
                     link = "N/A"
                     link_el = item.select_one("h2 a")
                     if link_el and link_el.has_attr('href'):
                         link = "https://www.amazon.in" + link_el['href']
 
-                    results.append({
-                        "name": name,
-                        "price": price,
-                        "rating": rating,
-                        "link": link,
-                        "source": "Amazon"
-                    })
+                    if price > 0:
+                        results.append({
+                            "name": name,
+                            "price": price,
+                            "rating": rating,
+                            "link": link,
+                            "source": "Amazon"
+                        })
                 except: continue
         except Exception as e:
             log.error(f"Amazon Failed: {e}")
@@ -107,43 +122,45 @@ class ScraperService:
             items = soup.select("div[data-id]")
             if not items: items = soup.select("div._1AtVbE")
 
+            log.info(f"Flipkart RAW items: {len(items)}")
+
             for i, item in enumerate(items):
                 if len(results) >= 5: break 
                 try:
-                    # 1. Title
+                    # 1. Title (Image Alt or Link Title)
                     name = None
                     img = item.select_one("img")
                     if img and img.has_attr("alt"): name = img["alt"]
                     if not name:
-                        title_div = item.select_one("div.KzDlHZ") or item.select_one("div._4rR01T") or item.select_one("a.s1Q9rs")
-                        if title_div: name = title_div.text.strip()
+                        link = item.select_one("a.wjcEIp") or item.select_one("a.s1Q9rs")
+                        if link: name = link.get("title") or link.text.strip()
+                    
+                    if not name: continue
 
-                    # 2. Price (Regex)
+                    # 2. Price (Regex Strategy)
                     price = 0.0
-                    raw_text = item.text
-                    match = re.search(r'₹\s?([0-9,]+)', raw_text)
+                    match = re.search(r'₹\s?([0-9,]+)', item.text)
                     if match:
                         price = float(match.group(1).replace(",", ""))
 
-                    # 3. Rating (NEW)
-                    # Flipkart uses these classes for the green star box
+                    # 3. Rating (Regex Strategy)
                     rating = "N/A"
-                    rating_el = item.select_one("div.XQDdHH") or item.select_one("div._3LWZlK")
-                    if rating_el:
-                        rating = rating_el.text.strip()
+                    # Look for single digit dot digit (e.g. 4.3) 
+                    # Often followed by star char or count in brackets
+                    # This regex looks for a digit, dot, digit
+                    r_match = re.search(r'\b([1-5]\.\d)\b', item.text)
+                    if r_match:
+                        rating = r_match.group(1)
 
-                    # 4. Link (NEW)
-                    # Find any anchor tag with an href inside the card
+                    # 4. Link
                     link = "N/A"
                     link_el = item.select_one("a")
                     if link_el and link_el.has_attr('href'):
                         href = link_el['href']
-                        if href.startswith("/"):
-                            link = "https://www.flipkart.com" + href
-                        else:
-                            link = href
+                        if href.startswith("/"): link = "https://www.flipkart.com" + href
+                        else: link = href
 
-                    if name and price > 0:
+                    if price > 0:
                         results.append({
                             "name": name,
                             "price": price,
@@ -151,7 +168,6 @@ class ScraperService:
                             "link": link,
                             "source": "Flipkart"
                         })
-
                 except: continue
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
