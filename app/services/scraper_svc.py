@@ -103,64 +103,79 @@ class ScraperService:
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             
-            # 1. Find Product Cards (Grid view confirmed by logs)
+            # Container Strategy
             items = soup.select("div[data-id]")
             if not items:
                 items = soup.select("div._1AtVbE")
 
-            log.info(f"Flipkart RAW items: {len(items)}")
+            log.info(f"Flipkart RAW items found: {len(items)}")
 
-            for i, item in enumerate(items):
-                if len(results) >= 5: break 
-                
+            # --- DIAGNOSTIC LOOP (First 3 items only) ---
+            for i, item in enumerate(items[:3]):
                 try:
-                    # --- TITLE STRATEGIES ---
+                    log.info(f"--- ANALYZING ITEM {i} ---")
+                    
+                    # 1. Try to find TITLE
                     name = None
+                    # Attempt A: Image Alt (Most reliable for grid)
+                    img = item.select_one("img")
+                    if img and img.has_attr("alt"):
+                        name = img["alt"]
+                        log.info(f"   [Title Strategy A] Found img alt: {name[:30]}...")
                     
-                    # Strategy 1: Image Alt Text (Very reliable for Grid View)
-                    img_el = item.select_one("img.UCc1lI")
-                    if img_el and img_el.has_attr("alt"):
-                        name = img_el["alt"]
-                    
-                    # Strategy 2: Link Text (Fallback)
+                    # Attempt B: Specific Div Classes
                     if not name:
-                        link_el = item.select_one("a.wjcEIp") or item.select_one("a.s1Q9rs")
-                        if link_el:
-                            name = link_el.get("title") or link_el.text.strip()
+                        title_div = item.select_one("div.KzDlHZ") or item.select_one("div._4rR01T") or item.select_one("a.s1Q9rs")
+                        if title_div:
+                            name = title_div.text.strip()
+                            log.info(f"   [Title Strategy B] Found div text: {name[:30]}...")
 
-                    # --- PRICE STRATEGIES ---
-                    price_el = (
-                        item.select_one("div.Nx9bqj") or  # New 2025 Price Class
-                        item.select_one("div._30jeq3")    # Old Price Class
-                    )
+                    if not name:
+                        log.warning("   ❌ TITLE NOT FOUND")
+
+                    # 2. Try to find PRICE
+                    price = None
+                    p_text = None
                     
-                    # Fallback: Look for ₹ symbol manually
-                    if not price_el:
+                    # Attempt A: Specific Div Classes
+                    price_div = item.select_one("div.Nx9bqj") or item.select_one("div._30jeq3")
+                    if price_div:
+                        p_text = price_div.text
+                        log.info(f"   [Price Strategy A] Found class text: {p_text}")
+                    
+                    # Attempt B: Search for ₹ symbol
+                    if not p_text:
                         for div in item.find_all("div"):
                             if "₹" in div.text:
-                                price_el = div
+                                p_text = div.text
+                                log.info(f"   [Price Strategy B] Found ₹ in div: {p_text}")
                                 break
-
-                    # --- PARSING ---
-                    if name and price_el:
-                        p_text = price_el.text.replace("₹", "").replace(",", "").strip()
-                        
-                        # Remove "onwards" or other text noise
-                        p_text = p_text.split()[0] 
-
-                        if p_text.isdigit():
-                            results.append({
-                                "name": name,
-                                "price": float(p_text),
-                                "source": "Flipkart"
-                            })
+                    
+                    if p_text:
+                        # Clean the price string
+                        clean_price = p_text.replace("₹", "").replace(",", "").split()[0].strip()
+                        if clean_price.isdigit():
+                            price = float(clean_price)
                         else:
-                            # log.warning(f"Flipkart Price Parse Error: {p_text}")
-                            pass
-                            
+                            log.warning(f"   ⚠️ Price found but not a number: '{clean_price}'")
+                    else:
+                        log.warning("   ❌ PRICE NOT FOUND")
+
+                    # 3. Save if valid
+                    if name and price:
+                        log.info("   ✅ ITEM VALID. Adding to results.")
+                        results.append({
+                            "name": name,
+                            "price": price,
+                            "source": "Flipkart"
+                        })
+                    else:
+                        log.warning("   ⛔ SKIPPING ITEM (Missing Data)")
+
                 except Exception as e:
-                    # log.error(f"Item Error: {e}")
-                    continue
+                    log.error(f"Item {i} Crash: {e}")
+            
+            # Continue standard loop for the rest (silent) if needed...
             
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
