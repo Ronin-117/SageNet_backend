@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 1. Install Core Dependencies (Fast)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 2. Install Heavy AI Dependencies (Slow - Cached Layer)
+# Docker will ONLY re-run this if requirements-ml.txt changes
+COPY requirements-ml.txt .
+RUN pip install --no-cache-dir -r requirements-ml.txt
+
+# 3. Copy Code
+COPY . .
+ENV PYTHONPATH=/app

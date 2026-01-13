@@ -1,0 +1,43 @@
+name: Deploy Core (Fast)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - 'Dockerfile.analytics'
+      - 'requirements-ml.txt'
+      - 'app/main_analytics.py'
+      - 'app/services/anomaly_svc.py'
+      - 'app/ml/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Oracle
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_KEY }}
+          script: |
+            echo "🚀 Starting Core Deployment..."
+            cd ~/SageNet_backend
+            
+            # 1. Get Latest Code
+            git pull
+            
+            # 2. Rebuild & Restart ONLY API and Bridge
+            # --build: forces a rebuild of the image
+            # -d: Detached mode
+            docker compose up -d --build api bridge
+            
+            # 3. Production Cleanup (Crucial)
+            # Removes "Dangling" images (the previous versions we just replaced)
+            # Does NOT remove cached layers (so next build is still fast)
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+            
+            # 4. Verification
+            echo "✅ Deployment Complete. Current Status:"
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep energy_

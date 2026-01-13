@@ -5,8 +5,4 @@ influxdb-client
 firebase-admin
 python-dotenv
 pydantic-settings
-schedule
-numpy
-pandas
-torch --index-url https://download.pytorch.org/whl/cpu
 redis

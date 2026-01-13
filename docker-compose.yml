@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   bridge:
-    build: . 
+    build: 
+      context: .
+      dockerfile: Dockerfile 
     image: sagenet_backend-bridge:latest
     container_name: energy_bridge
     command: python app/main_bridge.py
@@ -16,7 +18,9 @@ services:
       - ./logs:/app/logs
 
   api:
-    build: . 
+    build: 
+      context: .
+      dockerfile: Dockerfile
     image: sagenet_backend-api:latest
     container_name: energy_api
     # This command opens Port 8000 directly on the server
@@ -31,7 +35,9 @@ services:
       - ./logs:/app/logs
   
   analytics:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile.analytics 
     image: sagenet_backend-analytics:latest
     container_name: energy_analytics
     # Runs the analytics script instead of API/Bridge

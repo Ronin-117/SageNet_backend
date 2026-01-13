@@ -1,0 +1,43 @@
+name: Deploy Brain (Heavy)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Dockerfile.analytics'
+      - 'requirements-ml.txt'
+      - 'app/main_analytics.py'
+      - 'app/services/anomaly_svc.py'
+      - 'app/ml/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Analytics
+        uses: appleboy/ssh-action@master
+        with:
+          # High timeout (30m) because PyTorch installation is huge/slow
+          command_timeout: 30m 
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_KEY }}
+          script: |
+            echo "🧠 Starting Brain Deployment..."
+            cd ~/SageNet_backend
+            
+            # 1. Get Latest Code
+            git pull
+            
+            # 2. Rebuild Analytics
+            # This might take time if requirements-ml.txt changed
+            docker compose up -d --build analytics
+            
+            # 3. Production Cleanup
+            # Removes the old 3GB PyTorch image to save disk space
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+            
+            # 4. Verification
+            echo "✅ Brain Deployment Complete. Current Status:"
+            docker ps --format "table {{.Names}}\t{{.Status}}" | grep energy_analytics
