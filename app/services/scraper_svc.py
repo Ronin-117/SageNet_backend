@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 from app.core.logger import setup_logger
+import re
 
 log = setup_logger("ScraperService")
 
@@ -103,79 +104,61 @@ class ScraperService:
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             
-            # Container Strategy
             items = soup.select("div[data-id]")
             if not items:
                 items = soup.select("div._1AtVbE")
 
             log.info(f"Flipkart RAW items found: {len(items)}")
 
-            # --- DIAGNOSTIC LOOP (First 3 items only) ---
-            for i, item in enumerate(items[:3]):
+            for i, item in enumerate(items):
+                if len(results) >= 5: break 
+                
                 try:
-                    log.info(f"--- ANALYZING ITEM {i} ---")
-                    
-                    # 1. Try to find TITLE
+                    # 1. GET TITLE (Your logs proved Strategy A works!)
                     name = None
-                    # Attempt A: Image Alt (Most reliable for grid)
                     img = item.select_one("img")
                     if img and img.has_attr("alt"):
                         name = img["alt"]
-                        log.info(f"   [Title Strategy A] Found img alt: {name[:30]}...")
                     
-                    # Attempt B: Specific Div Classes
                     if not name:
                         title_div = item.select_one("div.KzDlHZ") or item.select_one("div._4rR01T") or item.select_one("a.s1Q9rs")
                         if title_div:
                             name = title_div.text.strip()
-                            log.info(f"   [Title Strategy B] Found div text: {name[:30]}...")
 
-                    if not name:
-                        log.warning("   ❌ TITLE NOT FOUND")
-
-                    # 2. Try to find PRICE
-                    price = None
-                    p_text = None
+                    # 2. GET PRICE (The Regex Fix)
+                    price = 0.0
                     
-                    # Attempt A: Specific Div Classes
+                    # Try specific class first (Cleanest)
                     price_div = item.select_one("div.Nx9bqj") or item.select_one("div._30jeq3")
                     if price_div:
-                        p_text = price_div.text
-                        log.info(f"   [Price Strategy A] Found class text: {p_text}")
+                        raw_price = price_div.text
+                    else:
+                        # Fallback: Get ALL text and search for ₹ pattern
+                        raw_price = item.text
+
+                    # Regex Logic: Find '₹' followed by numbers/commas
+                    # Example: "Mouse ₹219 ₹1,299" -> Finds "219"
+                    match = re.search(r'₹\s?([0-9,]+)', raw_price)
                     
-                    # Attempt B: Search for ₹ symbol
-                    if not p_text:
-                        for div in item.find_all("div"):
-                            if "₹" in div.text:
-                                p_text = div.text
-                                log.info(f"   [Price Strategy B] Found ₹ in div: {p_text}")
-                                break
-                    
-                    if p_text:
-                        # Clean the price string
-                        clean_price = p_text.replace("₹", "").replace(",", "").split()[0].strip()
+                    if match:
+                        clean_price = match.group(1).replace(",", "")
                         if clean_price.isdigit():
                             price = float(clean_price)
-                        else:
-                            log.warning(f"   ⚠️ Price found but not a number: '{clean_price}'")
-                    else:
-                        log.warning("   ❌ PRICE NOT FOUND")
 
-                    # 3. Save if valid
-                    if name and price:
-                        log.info("   ✅ ITEM VALID. Adding to results.")
+                    # 3. VALIDATE & SAVE
+                    if name and price > 0:
                         results.append({
                             "name": name,
                             "price": price,
                             "source": "Flipkart"
                         })
                     else:
-                        log.warning("   ⛔ SKIPPING ITEM (Missing Data)")
+                        # Only log warnings if we really missed data
+                        pass 
 
                 except Exception as e:
-                    log.error(f"Item {i} Crash: {e}")
-            
-            # Continue standard loop for the rest (silent) if needed...
+                    # log.error(f"Item {i} Error: {e}")
+                    continue
             
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
