@@ -94,19 +94,16 @@ def get_ai_status(
         channels=ai_config
     )
 
-# --- SHOPPING ENDPOINT ---
 @router.post("/shop", response_model=ShopResponse)
 def trigger_shopping_agent(
     payload: ShopRequest,
     uid: str = Depends(get_current_user)
 ):
     """
-    Triggers the RAG Pipeline:
-    1. Pushes job to Redis.
-    2. Background Worker scrapes Amazon/Flipkart.
-    3. AI analyzes results (Future).
+    Triggers the RAG Pipeline.
     """
-    verify_ownership("global", uid) # Optional: Check if user is allowed
+    # FIX: Removed verify_ownership("global", uid) 
+    # because Shopping is a User feature, not linked to a specific ESP32.
     
     job_id = queue_svc.push_scraper_job(payload.query, uid)
     
