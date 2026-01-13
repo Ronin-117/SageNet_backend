@@ -50,52 +50,43 @@ class ScraperService:
             driver.get(url)
             time.sleep(2)
 
-            # Check for Captcha
-            if "Robot" in driver.title or "Captcha" in driver.title:
-                log.warning("⚠️ Amazon blocked us (Robot Check).")
+            if "Robot" in driver.title:
                 return []
-
-            try:
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.s-main-slot")))
-            except: pass
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             items = soup.select("div[data-component-type='s-search-result']")
             
-            log.info(f"Amazon RAW items: {len(items)}")
-
             for item in items[:5]: 
                 try:
-                    # 1. Title (Multiple Strategies)
+                    # 1. Title
                     title_el = item.select_one("h2 span") or item.select_one("span.a-text-normal")
                     if not title_el: continue
                     name = title_el.text.strip()
 
-                    # 2. Price (Regex Strategy - Robust)
+                    # 2. Price
                     price = 0.0
                     raw_text = item.text
-                    # Find ₹ followed by numbers
                     match = re.search(r'₹\s?([0-9,]+)', raw_text)
                     if match:
                         price = float(match.group(1).replace(",", ""))
-                    else:
-                        # Fallback CSS
-                        price_el = item.select_one(".a-price-whole")
-                        if price_el:
-                            price = float(price_el.text.replace(",", "").strip())
 
-                    # 3. Rating (Regex Strategy)
+                    # 3. Rating
                     rating = "N/A"
-                    # Look for "4.5 out of 5 stars" pattern
-                    rating_match = re.search(r'(\d\.\d)\s?out of 5 stars', item.text)
-                    if rating_match:
-                        rating = rating_match.group(1)
+                    r_match = re.search(r'(\d\.\d)\s?out of 5 stars', raw_text)
+                    if r_match:
+                        rating = r_match.group(1)
 
-                    # 4. Link
+                    # 4. Link (Generic Strategy)
                     link = "N/A"
-                    link_el = item.select_one("h2 a")
-                    if link_el and link_el.has_attr('href'):
-                        link = "https://www.amazon.in" + link_el['href']
+                    # Find ANY link containing '/dp/' or '/gp/'
+                    link_el = item.find('a', href=re.compile(r'/(dp|gp)/'))
+                    
+                    if link_el:
+                        href = link_el['href']
+                        if href.startswith("/"):
+                            link = "https://www.amazon.in" + href
+                        else:
+                            link = href
 
                     if price > 0:
                         results.append({
