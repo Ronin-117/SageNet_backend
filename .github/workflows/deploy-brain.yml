@@ -17,24 +17,21 @@ jobs:
       - name: Deploy Analytics
         uses: appleboy/ssh-action@master
         with:
-          # High timeout (30m) because PyTorch installation is huge/slow
           command_timeout: 30m 
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_KEY }}
+          host: ${{ secrets.SSH_HOST }}        # <--- Fixed
+          username: ${{ secrets.SSH_USER }}    # <--- Fixed
+          key: ${{ secrets.SSH_PRIVATE_KEY }}  # <--- Fixed
           script: |
             echo "🧠 Starting Brain Deployment..."
             cd ~/SageNet_backend
             
             # 1. Get Latest Code
-            git pull
+            git pull origin main
             
             # 2. Rebuild Analytics
-            # This might take time if requirements-ml.txt changed
             docker compose up -d --build analytics
             
             # 3. Production Cleanup
-            # Removes the old 3GB PyTorch image to save disk space
             echo "🧹 Cleaning up old images..."
             docker image prune -f
             
