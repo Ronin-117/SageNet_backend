@@ -27,8 +27,8 @@ jobs:
             # 1. Get Latest Code
             git pull origin main
             
-            # 2. Rebuild & Restart ONLY API and Bridge
-            docker-compose up -d --build api bridge
+            # 2. Rebuild & Restart
+            docker-compose up -d --build api bridge selenium scraper_worker
             
             # 3. Production Cleanup
             echo "🧹 Cleaning up old images..."
