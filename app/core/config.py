@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # Paths
     MODEL_DIR: str = "app/ml/models"    # Where .pth files live
 
+    # Redis
+    REDIS_HOST: str = "127.0.0.1"
+    REDIS_PORT: int = 6379
+    REDIS_PASS: str
+
     class Config:
         env_file = ".env"
 
