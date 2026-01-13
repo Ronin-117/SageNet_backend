@@ -28,7 +28,7 @@ jobs:
             git pull origin main
             
             # 2. Rebuild & Restart ONLY API and Bridge
-            docker compose up -d --build api bridge
+            docker-compose up -d --build api bridge
             
             # 3. Production Cleanup
             echo "🧹 Cleaning up old images..."
