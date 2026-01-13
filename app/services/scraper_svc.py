@@ -103,43 +103,63 @@ class ScraperService:
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             
-            # Flipkart Containers
+            # 1. Find Product Cards (Try data-id first, then generic grid wrapper)
             items = soup.select("div[data-id]")
             if not items:
-                items = soup.select("div._1AtVbE") # Fallback grid class
+                items = soup.select("div._1AtVbE")
 
             log.info(f"Flipkart RAW items: {len(items)}")
 
-            for i, item in enumerate(items[:5]):
+            for i, item in enumerate(items):
+                if len(results) >= 5: break # Stop after 5 good items
+                
                 try:
-                    # TITLE STRATEGIES (New 2025 classes + Old classes)
+                    # --- STRATEGY A: Specific Classes (Fastest) ---
                     title_el = (
-                        item.select_one("div.KzDlHZ") or  # New 2024/25 Big Card
-                        item.select_one("a.s1Q9rs") or    # Grid Card
-                        item.select_one("div._4rR01T") or # Old Big Card
-                        item.select_one("a.wjcEIp")       # Another variant
+                        item.select_one("div.KzDlHZ") or 
+                        item.select_one("a.s1Q9rs") or 
+                        item.select_one("div._4rR01T")
                     )
-
-                    # PRICE STRATEGIES
                     price_el = (
-                        item.select_one("div.Nx9bqj") or  # New 2024/25 Price
-                        item.select_one("div._30jeq3")    # Old Price
+                        item.select_one("div.Nx9bqj") or 
+                        item.select_one("div._30jeq3")
                     )
-                    
-                    if title_el and price_el:
-                        p_text = price_el.text.replace("₹", "").replace(",", "").strip()
-                        results.append({
-                            "name": title_el.text.strip(),
-                            "price": float(p_text) if p_text.isdigit() else 0,
-                            "source": "Flipkart"
-                        })
-                    else:
-                        # Log failures to help debug
-                        if not title_el and not price_el: continue # Skip empty containers
-                        log.warning(f"Flipkart Item {i} Missing: Title={bool(title_el)}, Price={bool(price_el)}")
 
+                    # --- STRATEGY B: Generic Attributes (Fallback) ---
+                    # Flipkart links often have title="Product Name"
+                    if not title_el:
+                        title_el = item.select_one("a[title]")
+                    
+                    # Search for any text starting with ₹
+                    if not price_el:
+                        # Find all divs, look for one starting with ₹
+                        for div in item.find_all("div"):
+                            if div.text.strip().startswith("₹"):
+                                price_el = div
+                                break
+
+                    # --- PARSING ---
+                    if title_el and price_el:
+                        # Clean Title (Attributes often cleaner than text)
+                        name = title_el.get("title") if title_el.has_attr("title") else title_el.text.strip()
+                        
+                        # Clean Price
+                        p_text = price_el.text.replace("₹", "").replace(",", "").strip()
+                        
+                        if name and p_text.isdigit():
+                            results.append({
+                                "name": name,
+                                "price": float(p_text),
+                                "source": "Flipkart"
+                            })
+                        else:
+                            # Log failed parse for debugging
+                            # log.warning(f"Flipkart Item {i}: Found elements but parsing failed. Text: {p_text}")
+                            pass
+                            
                 except Exception as e:
-                    log.error(f"Flipkart Parse Error item {i}: {e}")
+                    # log.error(f"Flipkart Item {i} Error: {e}")
+                    continue
             
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
