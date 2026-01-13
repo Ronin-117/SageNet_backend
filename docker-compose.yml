@@ -50,3 +50,28 @@ services:
       - ./logs:/app/logs
       # Map the ML models folder so they survive restarts
       - ./app/ml:/app/app/ml
+
+  selenium:
+    image: selenium/standalone-chromium:latest
+    container_name: energy_scraper_browser
+    restart: always
+    network_mode: "host" # Needs to be on Host to talk to Backend easily via localhost
+    # Limit memory to prevent crashing your 1GB server
+    shm_size: 2g
+    environment:
+      - SE_NODE_MAX_SESSIONS=1
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+
+  scraper_worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile  # Use the light python image
+    image: sagenet_backend-scraper:latest
+    container_name: energy_scraper_worker
+    command: python app/main_scraper.py
+    restart: always
+    network_mode: "host"
+    env_file: .env
+    volumes:
+      - ./serviceAccountKey.json:/app/serviceAccountKey.json
+      - ./logs:/app/logs

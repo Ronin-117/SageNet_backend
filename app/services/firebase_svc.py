@@ -196,4 +196,15 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Notification Failed: {e}")
 
+    def save_search_results(self, job_id: str, results: list):
+        try:
+            self.db.collection('searches').document(job_id).set({
+                'status': 'scraped',
+                'raw_products': results,
+                'scraped_at': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            log.info(f"Saved {len(results)} items to Firestore for Job {job_id}")
+        except Exception as e:
+            log.error(f"Firestore Save Error: {e}")
+
 firebase_svc = FirebaseService()
