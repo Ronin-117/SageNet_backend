@@ -103,61 +103,68 @@ class ScraperService:
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             
-            # Container Strategy
+            # 1. Find Product Cards (Grid view confirmed by logs)
             items = soup.select("div[data-id]")
             if not items:
                 items = soup.select("div._1AtVbE")
 
             log.info(f"Flipkart RAW items: {len(items)}")
 
-            for i, item in enumerate(items[:3]): # Check first 3 only for debug
+            for i, item in enumerate(items):
+                if len(results) >= 5: break 
+                
                 try:
-                    # 1. Attempt Extraction (Add 'wjcEIp' - new 2025 class)
-                    title_el = (
-                        item.select_one("div.KzDlHZ") or 
-                        item.select_one("a.s1Q9rs") or 
-                        item.select_one("div._4rR01T") or
-                        item.select_one("a.wjcEIp") 
+                    # --- TITLE STRATEGIES ---
+                    name = None
+                    
+                    # Strategy 1: Image Alt Text (Very reliable for Grid View)
+                    img_el = item.select_one("img.UCc1lI")
+                    if img_el and img_el.has_attr("alt"):
+                        name = img_el["alt"]
+                    
+                    # Strategy 2: Link Text (Fallback)
+                    if not name:
+                        link_el = item.select_one("a.wjcEIp") or item.select_one("a.s1Q9rs")
+                        if link_el:
+                            name = link_el.get("title") or link_el.text.strip()
+
+                    # --- PRICE STRATEGIES ---
+                    price_el = (
+                        item.select_one("div.Nx9bqj") or  # New 2025 Price Class
+                        item.select_one("div._30jeq3")    # Old Price Class
                     )
                     
-                    price_el = (
-                        item.select_one("div.Nx9bqj") or 
-                        item.select_one("div._30jeq3")
-                    )
+                    # Fallback: Look for ₹ symbol manually
+                    if not price_el:
+                        for div in item.find_all("div"):
+                            if "₹" in div.text:
+                                price_el = div
+                                break
 
-                    # 2. SUCCESS PATH
-                    if title_el and price_el:
-                        name = title_el.get("title") if title_el.has_attr("title") else title_el.text.strip()
+                    # --- PARSING ---
+                    if name and price_el:
                         p_text = price_el.text.replace("₹", "").replace(",", "").strip()
                         
+                        # Remove "onwards" or other text noise
+                        p_text = p_text.split()[0] 
+
                         if p_text.isdigit():
                             results.append({
                                 "name": name,
                                 "price": float(p_text),
                                 "source": "Flipkart"
                             })
-                            continue # Success, move to next item
-
-                    # 3. FAILURE PATH (Debug Dump)
-                    # If we reach here, we found the Card, but missed Title or Price.
-                    # We print the HTML structure so we can fix it.
-                    log.warning(f"--- DEBUG FLIPKART ITEM {i} ---")
-                    
-                    # Print class names of the item to help identify it
-                    classes = item.get("class", [])
-                    log.warning(f"Container Classes: {classes}")
-                    
-                    # Print first 500 chars of HTML (Enough to see Title/Price classes)
-                    html_snippet = item.prettify()[:1000].replace("\n", " ")
-                    log.warning(f"HTML: {html_snippet}")
-                    log.warning("-------------------------------")
-
+                        else:
+                            # log.warning(f"Flipkart Price Parse Error: {p_text}")
+                            pass
+                            
                 except Exception as e:
-                    log.error(f"Item Error: {e}")
+                    # log.error(f"Item Error: {e}")
+                    continue
             
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
             
         return results
-        
+
 scraper_svc = ScraperService()
