@@ -32,9 +32,7 @@ class ScraperService:
         driver = None
         try:
             driver = self._get_driver()
-            # Scrape Amazon
             results.extend(self._scrape_amazon(driver, query))
-            # Scrape Flipkart
             results.extend(self._scrape_flipkart(driver, query))
         except Exception as e:
             log.error(f"Global Scraper Error: {e}")
@@ -69,6 +67,10 @@ class ScraperService:
                     match = re.search(r'₹\s?([0-9,]+)', raw_text)
                     if match:
                         price = float(match.group(1).replace(",", ""))
+                    else:
+                        price_el = item.select_one(".a-price-whole")
+                        if price_el:
+                            price = float(price_el.text.replace(",", "").strip())
 
                     # 3. Rating
                     rating = "N/A"
@@ -76,17 +78,30 @@ class ScraperService:
                     if r_match:
                         rating = r_match.group(1)
 
-                    # 4. Link (Generic Strategy)
+                    # 4. Link
                     link = "N/A"
-                    # Find ANY link containing '/dp/' or '/gp/'
-                    link_el = item.find('a', href=re.compile(r'/(dp|gp)/'))
+                    link_el = item.select_one("h2 a")
+                    if link_el and link_el.has_attr('href'):
+                        link = "https://www.amazon.in" + link_el['href']
+
+                    # 5. Specs / Tech Info (NEW)
+                    # Amazon is tricky. We gather features from rows below the title.
+                    specs = []
+                    # Try to find specific attribute rows often used for "Get it by", "Stock", or specs
+                    # But often specs are just part of the title in Amazon. 
+                    # We will try to grab the "Feature" table if it exists on search page (rare)
+                    # or grab secondary text lines.
                     
-                    if link_el:
-                        href = link_el['href']
-                        if href.startswith("/"):
-                            link = "https://www.amazon.in" + href
-                        else:
-                            link = href
+                    # Look for gray text rows
+                    info_rows = item.select("div.a-row.a-size-base.a-color-secondary")
+                    for row in info_rows:
+                        text = row.text.strip()
+                        # Filter out garbage like "bought in past month"
+                        if text and len(text) > 3 and "bought" not in text and "Get it" not in text:
+                            specs.append(text)
+                    
+                    # Join valid specs
+                    specs_text = " | ".join(specs) if specs else "See Title"
 
                     if price > 0:
                         results.append({
@@ -94,6 +109,7 @@ class ScraperService:
                             "price": price,
                             "rating": rating,
                             "link": link,
+                            "specs": specs_text, # <--- NEW FIELD
                             "source": "Amazon"
                         })
                 except: continue
@@ -113,12 +129,10 @@ class ScraperService:
             items = soup.select("div[data-id]")
             if not items: items = soup.select("div._1AtVbE")
 
-            log.info(f"Flipkart RAW items: {len(items)}")
-
             for i, item in enumerate(items):
                 if len(results) >= 5: break 
                 try:
-                    # 1. Title (Image Alt or Link Title)
+                    # 1. Title
                     name = None
                     img = item.select_one("img")
                     if img and img.has_attr("alt"): name = img["alt"]
@@ -128,20 +142,16 @@ class ScraperService:
                     
                     if not name: continue
 
-                    # 2. Price (Regex Strategy)
+                    # 2. Price
                     price = 0.0
                     match = re.search(r'₹\s?([0-9,]+)', item.text)
                     if match:
                         price = float(match.group(1).replace(",", ""))
 
-                    # 3. Rating (Regex Strategy)
+                    # 3. Rating
                     rating = "N/A"
-                    # Look for single digit dot digit (e.g. 4.3) 
-                    # Often followed by star char or count in brackets
-                    # This regex looks for a digit, dot, digit
                     r_match = re.search(r'\b([1-5]\.\d)\b', item.text)
-                    if r_match:
-                        rating = r_match.group(1)
+                    if r_match: rating = r_match.group(1)
 
                     # 4. Link
                     link = "N/A"
@@ -151,12 +161,33 @@ class ScraperService:
                         if href.startswith("/"): link = "https://www.flipkart.com" + href
                         else: link = href
 
+                    # 5. Specs (NEW - The "Feature List")
+                    # Flipkart usually has a UL with class '_1xgFaf' or similar in list view.
+                    # In grid view, specs are rare, but we look for them.
+                    specs = []
+                    
+                    # Try finding the unordered list (Common in Phones/Appliances List View)
+                    ul_el = item.select_one("ul") 
+                    if ul_el:
+                        lis = ul_el.find_all("li")
+                        for li in lis:
+                            specs.append(li.text.strip())
+                    
+                    # If grid view (no UL), sometimes there are subtitles
+                    if not specs:
+                        subtitles = item.select("div.fMghEO") # Another container
+                        if subtitles:
+                            specs.append(subtitles[0].text.strip())
+
+                    specs_text = " | ".join(specs) if specs else "See Title"
+
                     if price > 0:
                         results.append({
                             "name": name,
                             "price": price,
                             "rating": rating,
                             "link": link,
+                            "specs": specs_text, # <--- NEW FIELD
                             "source": "Flipkart"
                         })
                 except: continue
