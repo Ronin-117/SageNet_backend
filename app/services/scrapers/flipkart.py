@@ -2,6 +2,7 @@ from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import time
 import re
+import json
 from app.services.scrapers.base_scraper import BaseScraper
 from app.core.logger import setup_logger
 
@@ -59,7 +60,6 @@ class FlipkartScraper(BaseScraper):
                     name_el = (p_soup.select_one("span.B_NuCI") or 
                                p_soup.select_one("span.VU-ZEz") or 
                                p_soup.select_one("h1"))
-                    
                     name = name_el.text.strip() if name_el else "Unknown Product"
 
                     # PRICE
@@ -67,45 +67,54 @@ class FlipkartScraper(BaseScraper):
                     price_el = (p_soup.select_one("div.Nx9bqj") or 
                                 p_soup.select_one("div._30jeq3") or 
                                 p_soup.select_one("div.CEmiEU"))
-                    
                     if price_el:
                         price = self.clean_price(price_el.text)
                     
                     if price == 0.0:
-                        main_content = p_soup.select_one("div._1AtVbE") or p_soup
-                        match = re.search(r'₹\s?([0-9,]+)', main_content.get_text())
+                        # Regex Fallback
+                        match = re.search(r'₹\s?([0-9,]+)', p_soup.get_text())
                         if match:
                             clean = match.group(1).replace(",", "")
                             price = float(clean)
 
-                    # --- RATING (The Bulletproof Logic) ---
+                    # --- RATING STRATEGIES ---
                     rating = "N/A"
-                    
-                    # Strategy A: Standard Green Box Class
-                    r_el = p_soup.select_one("div.XQDdHH") or p_soup.select_one("div._3LWZlK")
-                    if r_el:
-                        rating = r_el.text.strip()
-                    
-                    # Strategy B: Look for the Review Summary Container
-                    if rating == "N/A":
-                        # Find div containing text "Ratings" and "Reviews"
-                        # Flipkart usually puts the big rating number right above this text
-                        summary_div = p_soup.find("span", string=re.compile("Ratings"))
-                        if summary_div:
-                            # Go up to parents to find the score
-                            parent = summary_div.find_parent("div")
-                            if parent:
-                                # Look for a number like 4.3 in the parent text
-                                m = re.search(r'\b([1-5]\.\d)\b', parent.text)
-                                if m: rating = m.group(1)
 
-                    # Strategy C: Brute Force Regex near the Title
-                    # Often the rating is near the top h1
+                    # Strategy 1: JSON-LD (The "Hidden Data" Method)
+                    # Look for <script type="application/ld+json">
+                    scripts = p_soup.find_all('script', type='application/ld+json')
+                    for s in scripts:
+                        try:
+                            data = json.loads(s.string)
+                            # Check if it's the Product schema
+                            if isinstance(data, list): data = data[0] # Sometimes it's a list
+                            
+                            if data.get('@type') == 'Product' and 'aggregateRating' in data:
+                                rating_val = data['aggregateRating'].get('ratingValue')
+                                if rating_val:
+                                    rating = str(rating_val)
+                                    log.info(f"   ✅ Found Rating via JSON-LD: {rating}")
+                                    break
+                        except: pass
+
+                    # Strategy 2: Visual Selectors (Backup)
                     if rating == "N/A":
-                        header_area = p_soup.select_one("div.C7fEHH") # Common header wrapper
-                        if header_area:
-                            m = re.search(r'\b([1-5]\.\d)\b', header_area.text)
-                            if m: rating = m.group(1)
+                        r_el = p_soup.select_one("div.XQDdHH") or p_soup.select_one("div._3LWZlK")
+                        if r_el: 
+                            rating = r_el.text.strip()
+                            log.info(f"   ✅ Found Rating via CSS: {rating}")
+
+                    # Strategy 3: Text Search Debugging (If both fail)
+                    if rating == "N/A":
+                        # Find the word "Ratings" in the text and print context
+                        full_text = p_soup.get_text()
+                        idx = full_text.find("Ratings")
+                        if idx != -1:
+                            # Print 50 chars before "Ratings" to see where the number is
+                            snippet = full_text[idx-50 : idx+10]
+                            log.warning(f"   ⚠️ Rating Debug Context: '{snippet.replace(chr(10), ' ')}'")
+                        else:
+                            log.warning("   ⚠️ Word 'Ratings' not found on page.")
 
                     # SPECS
                     specs = ""
@@ -116,7 +125,6 @@ class FlipkartScraper(BaseScraper):
                         lis = p_soup.select("div._2418kt ul li")
                         specs = " | ".join([li.text for li in lis])
 
-                    # SAVE
                     if price > 0:
                         callback({
                             "name": name, "price": price, "rating": rating, 
