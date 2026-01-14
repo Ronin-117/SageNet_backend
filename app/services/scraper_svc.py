@@ -32,67 +32,91 @@ class ScraperService:
         driver = None
         try:
             driver = self._get_driver()
-            # Scrape Amazon (Limit 5)
-            results.extend(self._scrape_amazon(driver, query))
-            # Scrape Flipkart (Limit 5)
-            results.extend(self._scrape_flipkart(driver, query))
+            # Limit to Top 3 items per site to keep scraping time under 1 minute
+            results.extend(self._scrape_amazon_deep(driver, query, limit=3))
+            results.extend(self._scrape_flipkart_deep(driver, query, limit=3))
         except Exception as e:
             log.error(f"Global Scraper Error: {e}")
         finally:
             if driver: driver.quit()
         return results
 
-    def _scrape_amazon(self, driver, query):
+    def _scrape_amazon_deep(self, driver, query, limit=3):
         results = []
         try:
-            log.info(f"🕷️ Scraping Amazon for: {query}")
+            log.info(f"🕷️ Scraping Amazon (Deep Mode) for: {query}")
             url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
             driver.get(url)
             time.sleep(2)
 
-            if "Robot" in driver.title: return []
+            if "Robot" in driver.title:
+                log.warning("Amazon Robot Check detected on search page.")
+                return []
 
+            # 1. Collect Links from Search Page
             soup = BeautifulSoup(driver.page_source, "html.parser")
             items = soup.select("div[data-component-type='s-search-result']")
-            
-            log.info(f"Amazon RAW items: {len(items)}")
+            product_links = []
 
-            for item in items[:5]: 
+            for item in items[:limit]:
+                # Find Link using generic strategy
+                link_el = item.find('a', href=re.compile(r'/(dp|gp)/'))
+                if link_el:
+                    href = link_el['href']
+                    if href.startswith("/"):
+                        product_links.append("https://www.amazon.in" + href)
+                    else:
+                        product_links.append(href)
+
+            # 2. Visit Each Product
+            for link in product_links:
                 try:
-                    # 1. Title
-                    title_el = item.select_one("h2 span") or item.select_one("span.a-text-normal")
-                    if not title_el: continue
-                    name = title_el.text.strip()
-
-                    # 2. Price
-                    price = 0.0
-                    price_el = item.select_one(".a-price-whole")
-                    if price_el:
-                        price = float(price_el.text.replace(",", "").strip())
-
-                    # 3. Rating
-                    rating = "N/A"
-                    r_match = re.search(r'(\d\.\d)\s?out of 5 stars', item.text)
-                    if r_match: rating = r_match.group(1)
-
-                    # 4. Link
-                    link = "N/A"
-                    link_el = item.select_one("h2 a")
-                    if link_el and link_el.has_attr('href'):
-                        link = "https://www.amazon.in" + link_el['href']
-
-                    # 5. Specs (Best Effort from Search Card)
-                    # Amazon often puts specs in rows with 'a-color-secondary'
-                    specs_list = []
-                    # Try finding the specific feature rows
-                    rows = item.select("div.a-row")
-                    for row in rows:
-                        text = row.text.strip()
-                        # Filter out Price, Rating, and Junk
-                        if len(text) > 3 and "₹" not in text and "stars" not in text and "delivery" not in text.lower():
-                            specs_list.append(text)
+                    log.info(f"   -> Visiting Amazon Product: {link[:50]}...")
+                    driver.get(link)
+                    time.sleep(2) # Allow specs to load
                     
-                    specs_text = " | ".join(specs_list[:3]) if specs_list else "See Link"
+                    page_soup = BeautifulSoup(driver.page_source, "html.parser")
+
+                    # -- Extract Details --
+                    # Title
+                    name_el = page_soup.select_one("#productTitle")
+                    name = name_el.text.strip() if name_el else "Unknown Product"
+
+                    # Price
+                    price = 0.0
+                    price_el = page_soup.select_one(".a-price-whole")
+                    if price_el:
+                        price = float(price_el.text.replace(",", "").replace(".", "").strip())
+
+                    # Rating
+                    rating = "N/A"
+                    rating_el = page_soup.select_one("#acrPopover")
+                    if rating_el:
+                        r_text = rating_el.get("title") or rating_el.text
+                        match = re.search(r'(\d\.\d)', r_text)
+                        if match: rating = match.group(1)
+
+                    # SPECS (The Table)
+                    # Strategy: Look for the specific table ID you provided
+                    specs_data = []
+                    table = page_soup.select_one("#productDetails_techSpec_section_1")
+                    
+                    if table:
+                        rows = table.find_all("tr")
+                        for row in rows:
+                            th = row.find("th")
+                            td = row.find("td")
+                            if th and td:
+                                key = th.text.strip().replace("\u200e", "")
+                                val = td.text.strip().replace("\u200e", "")
+                                specs_data.append(f"{key}: {val}")
+                    else:
+                        # Fallback: Detail Bullets
+                        bullets = page_soup.select("#detailBullets_feature_div li")
+                        for li in bullets:
+                            specs_data.append(li.text.strip().replace("\n", " "))
+
+                    specs_text = " | ".join(specs_data) if specs_data else "Details not found in table"
 
                     if price > 0:
                         results.append({
@@ -100,18 +124,22 @@ class ScraperService:
                             "price": price,
                             "rating": rating,
                             "link": link,
-                            "specs": specs_text,
+                            "specs": specs_text[:1000], # Limit text size for DB
                             "source": "Amazon"
                         })
-                except: continue
+                        
+                except Exception as e:
+                    log.error(f"Amazon Product Visit Error: {e}")
+                    continue
+
         except Exception as e:
             log.error(f"Amazon Failed: {e}")
         return results
 
-    def _scrape_flipkart(self, driver, query):
+    def _scrape_flipkart_deep(self, driver, query, limit=3):
         results = []
         try:
-            log.info(f"🕷️ Scraping Flipkart for: {query}")
+            log.info(f"🕷️ Scraping Flipkart (Deep Mode) for: {query}")
             url = f"https://www.flipkart.com/search?q={query.replace(' ', '%20')}"
             driver.get(url)
             time.sleep(2)
@@ -120,56 +148,59 @@ class ScraperService:
             items = soup.select("div[data-id]")
             if not items: items = soup.select("div._1AtVbE")
 
-            log.info(f"Flipkart RAW items: {len(items)}")
+            product_links = []
+            for item in items[:limit]:
+                link_el = item.select_one("a")
+                if link_el and link_el.has_attr('href'):
+                    href = link_el['href']
+                    if href.startswith("/"):
+                        product_links.append("https://www.flipkart.com" + href)
 
-            for i, item in enumerate(items):
-                if len(results) >= 5: break 
+            # 2. Visit Each Product
+            for link in product_links:
                 try:
-                    # 1. Title
-                    name = None
-                    img = item.select_one("img")
-                    if img and img.has_attr("alt"): name = img["alt"]
-                    if not name:
-                        # Try Link Title
-                        link = item.select_one("a.wjcEIp") or item.select_one("a.s1Q9rs")
-                        if link: name = link.get("title") or link.text.strip()
+                    log.info(f"   -> Visiting Flipkart Product: {link[:50]}...")
+                    driver.get(link)
+                    time.sleep(2)
                     
-                    if not name: continue
+                    page_soup = BeautifulSoup(driver.page_source, "html.parser")
 
-                    # 2. Price
+                    # Title (Try new and old classes)
+                    name_el = page_soup.select_one("span.B_NuCI") or page_soup.select_one("span.VU-ZEz") or page_soup.select_one("h1")
+                    name = name_el.text.strip() if name_el else "Unknown Product"
+
+                    # Price
                     price = 0.0
-                    match = re.search(r'₹\s?([0-9,]+)', item.text)
-                    if match:
-                        price = float(match.group(1).replace(",", ""))
+                    price_el = page_soup.select_one("div.Nx9bqj") or page_soup.select_one("div._30jeq3")
+                    if price_el:
+                         price = float(price_el.text.replace("₹", "").replace(",", "").strip())
 
-                    # 3. Rating
+                    # Rating
                     rating = "N/A"
-                    r_match = re.search(r'\b([1-5]\.\d)\b', item.text)
-                    if r_match: rating = r_match.group(1)
+                    rating_el = page_soup.select_one("div.XQDdHH") or page_soup.select_one("div._3LWZlK")
+                    if rating_el: rating = rating_el.text.strip()
 
-                    # 4. Link
-                    link = "N/A"
-                    link_el = item.select_one("a")
-                    if link_el and link_el.has_attr('href'):
-                        href = link_el['href']
-                        if href.startswith("/"): link = "https://www.flipkart.com" + href
-                        else: link = href
+                    # SPECS (Based on your HTML snippet)
+                    # Structure: div.d2eo1M > table.n7infM > tr.row
+                    specs_data = []
+                    
+                    # Find all tables with class n7infM (Your snippet had this)
+                    # Or generic table search inside spec container
+                    tables = page_soup.select("table.n7infM")
+                    if not tables:
+                        tables = page_soup.select("table._14cfVK") # Old class fallback
 
-                    # 5. Specs (From Search Card)
-                    # Flipkart List View often has a UL
-                    specs_text = "See Link"
-                    ul_list = item.select_one("ul")
-                    if ul_list:
-                        lis = ul_list.find_all("li")
-                        specs_text = " | ".join([li.text.strip() for li in lis])
-                    else:
-                        # Grid View: Specs are often mixed in subtitles
-                        # Look for gray text (often class _13oc-S or similar, but generic is safer)
-                        # We grab text that ISN'T the name or price
-                        all_text = item.text
-                        # Simple heuristic: If text is long and not the name
-                        if len(all_text) > len(name) + 20:
-                            specs_text = "Check Product Page Details" 
+                    for table in tables:
+                        rows = table.find_all("tr")
+                        for row in rows:
+                            # Your snippet: td.col-3-12 (Key), td.col-9-12 (Value)
+                            cols = row.find_all("td")
+                            if len(cols) >= 2:
+                                key = cols[0].text.strip()
+                                val = cols[1].text.strip()
+                                specs_data.append(f"{key}: {val}")
+                    
+                    specs_text = " | ".join(specs_data) if specs_data else "Specifications not found"
 
                     if price > 0:
                         results.append({
@@ -177,12 +208,17 @@ class ScraperService:
                             "price": price,
                             "rating": rating,
                             "link": link,
-                            "specs": specs_text,
+                            "specs": specs_text[:1000],
                             "source": "Flipkart"
                         })
-                except: continue
+
+                except Exception as e:
+                    log.error(f"Flipkart Product Visit Error: {e}")
+                    continue
+
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
+            
         return results
 
 scraper_svc = ScraperService()
