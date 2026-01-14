@@ -27,10 +27,8 @@ class FlipkartScraper(BaseScraper):
             
             # --- 1. GET LINKS ---
             links = []
-            # Grid view (div[data-id]) or fallback
             items = soup.select("div[data-id]") or soup.select("div._1AtVbE")
             
-            # Collect unique links
             seen = set()
             for item in items:
                 if len(links) >= limit: break
@@ -57,20 +55,15 @@ class FlipkartScraper(BaseScraper):
                     time.sleep(2)
                     p_soup = BeautifulSoup(driver.page_source, "html.parser")
 
-                    # TITLE STRATEGIES
-                    # 1. New Class (B_NuCI / VU-ZEz)
-                    # 2. Generic H1
+                    # TITLE
                     name_el = (p_soup.select_one("span.B_NuCI") or 
                                p_soup.select_one("span.VU-ZEz") or 
                                p_soup.select_one("h1"))
                     
                     name = name_el.text.strip() if name_el else "Unknown Product"
-                    if name == "Unknown Product":
-                        log.warning(f"   ⚠️ Title not found for {link[:20]}")
 
-                    # PRICE STRATEGIES
+                    # PRICE
                     price = 0.0
-                    # 1. Specific Class (Nx9bqj is current 2025 standard)
                     price_el = (p_soup.select_one("div.Nx9bqj") or 
                                 p_soup.select_one("div._30jeq3") or 
                                 p_soup.select_one("div.CEmiEU"))
@@ -78,23 +71,41 @@ class FlipkartScraper(BaseScraper):
                     if price_el:
                         price = self.clean_price(price_el.text)
                     
-                    # 2. Fallback: Regex Search in Page Text (CRITICAL FIX)
                     if price == 0.0:
-                        # Look for ₹ followed by digits
-                        # We take the text of the main container to avoid header/footer noise
                         main_content = p_soup.select_one("div._1AtVbE") or p_soup
                         match = re.search(r'₹\s?([0-9,]+)', main_content.get_text())
                         if match:
                             clean = match.group(1).replace(",", "")
                             price = float(clean)
 
-                    if price == 0.0:
-                        log.warning(f"   ⚠️ Price not found for {link[:20]}")
-
-                    # RATING
+                    # --- RATING (The Bulletproof Logic) ---
                     rating = "N/A"
+                    
+                    # Strategy A: Standard Green Box Class
                     r_el = p_soup.select_one("div.XQDdHH") or p_soup.select_one("div._3LWZlK")
-                    if r_el: rating = r_el.text.strip()
+                    if r_el:
+                        rating = r_el.text.strip()
+                    
+                    # Strategy B: Look for the Review Summary Container
+                    if rating == "N/A":
+                        # Find div containing text "Ratings" and "Reviews"
+                        # Flipkart usually puts the big rating number right above this text
+                        summary_div = p_soup.find("span", string=re.compile("Ratings"))
+                        if summary_div:
+                            # Go up to parents to find the score
+                            parent = summary_div.find_parent("div")
+                            if parent:
+                                # Look for a number like 4.3 in the parent text
+                                m = re.search(r'\b([1-5]\.\d)\b', parent.text)
+                                if m: rating = m.group(1)
+
+                    # Strategy C: Brute Force Regex near the Title
+                    # Often the rating is near the top h1
+                    if rating == "N/A":
+                        header_area = p_soup.select_one("div.C7fEHH") # Common header wrapper
+                        if header_area:
+                            m = re.search(r'\b([1-5]\.\d)\b', header_area.text)
+                            if m: rating = m.group(1)
 
                     # SPECS
                     specs = ""
@@ -102,7 +113,6 @@ class FlipkartScraper(BaseScraper):
                     if rows:
                         specs = " | ".join([f"{r.find_all('td')[0].text}: {r.find_all('td')[1].text}" for r in rows if len(r.find_all('td'))==2])
                     else:
-                        # Highlights fallback
                         lis = p_soup.select("div._2418kt ul li")
                         specs = " | ".join([li.text for li in lis])
 
@@ -113,7 +123,6 @@ class FlipkartScraper(BaseScraper):
                             "link": link, "specs": specs[:800], "source": "Flipkart"
                         })
                         count += 1
-                        # log.info(f"   ✅ Saved Flipkart Item: {name[:20]}")
 
                 except Exception as e:
                     log.error(f"Flipkart Item Error: {e}")
