@@ -239,3 +239,5 @@ class ScraperService:
         except Exception as e:
             log.error(f"Flipkart Failed: {e}")
         return results
+
+scraper_svc = ScraperService()
