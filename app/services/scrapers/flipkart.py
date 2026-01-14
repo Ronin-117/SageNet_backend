@@ -1,6 +1,7 @@
 from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import time
+import re
 from app.services.scrapers.base_scraper import BaseScraper
 from app.core.logger import setup_logger
 
@@ -26,15 +27,23 @@ class FlipkartScraper(BaseScraper):
             
             # --- 1. GET LINKS ---
             links = []
-            # Try new grid class (2025/2026) -> Old grid -> List view
+            # Grid view (div[data-id]) or fallback
             items = soup.select("div[data-id]") or soup.select("div._1AtVbE")
             
-            log.info(f"Flipkart Search Cards Found: {len(items)}")
-
-            for item in items[:limit]:
+            # Collect unique links
+            seen = set()
+            for item in items:
+                if len(links) >= limit: break
                 a = item.select_one("a")
-                if a and a.has_attr('href') and a['href'].startswith("/"):
-                    links.append("https://www.flipkart.com" + a['href'])
+                if a and a.has_attr('href'):
+                    href = a['href']
+                    if href.startswith("/"):
+                        full_link = "https://www.flipkart.com" + href
+                        if full_link not in seen:
+                            links.append(full_link)
+                            seen.add(full_link)
+
+            log.info(f"Flipkart Search Cards Found: {len(items)} -> Selected {len(links)} links")
 
             # --- 2. DEEP DIVE ---
             for link in links:
@@ -48,46 +57,63 @@ class FlipkartScraper(BaseScraper):
                     time.sleep(2)
                     p_soup = BeautifulSoup(driver.page_source, "html.parser")
 
-                    # Title
-                    title = "Unknown"
-                    t_el = p_soup.select_one("span.B_NuCI") or p_soup.select_one("h1")
-                    if t_el: title = t_el.text.strip()
-
-                    # Price
-                    price = 0.0
-                    p_el = p_soup.select_one("div.Nx9bqj") or p_soup.select_one("div._30jeq3")
-                    if p_el: 
-                        price = self.clean_price(p_el.text)
+                    # TITLE STRATEGIES
+                    # 1. New Class (B_NuCI / VU-ZEz)
+                    # 2. Generic H1
+                    name_el = (p_soup.select_one("span.B_NuCI") or 
+                               p_soup.select_one("span.VU-ZEz") or 
+                               p_soup.select_one("h1"))
                     
-                    # Rating (Robust Search)
-                    rating = "N/A"
-                    # 1. Look for the green star box
-                    r_el = p_soup.select_one("div.XQDdHH") or p_soup.select_one("div._3LWZlK")
-                    if r_el:
-                        rating = r_el.text.strip()
-                    else:
-                        # 2. Fallback: Search for text pattern inside the header area
-                        header = p_soup.select_one("div.C7fEHH") # Common header container
-                        if header:
-                             rating = self.clean_rating(header.text)
+                    name = name_el.text.strip() if name_el else "Unknown Product"
+                    if name == "Unknown Product":
+                        log.warning(f"   ⚠️ Title not found for {link[:20]}")
 
-                    # Specs
+                    # PRICE STRATEGIES
+                    price = 0.0
+                    # 1. Specific Class (Nx9bqj is current 2025 standard)
+                    price_el = (p_soup.select_one("div.Nx9bqj") or 
+                                p_soup.select_one("div._30jeq3") or 
+                                p_soup.select_one("div.CEmiEU"))
+                    
+                    if price_el:
+                        price = self.clean_price(price_el.text)
+                    
+                    # 2. Fallback: Regex Search in Page Text (CRITICAL FIX)
+                    if price == 0.0:
+                        # Look for ₹ followed by digits
+                        # We take the text of the main container to avoid header/footer noise
+                        main_content = p_soup.select_one("div._1AtVbE") or p_soup
+                        match = re.search(r'₹\s?([0-9,]+)', main_content.get_text())
+                        if match:
+                            clean = match.group(1).replace(",", "")
+                            price = float(clean)
+
+                    if price == 0.0:
+                        log.warning(f"   ⚠️ Price not found for {link[:20]}")
+
+                    # RATING
+                    rating = "N/A"
+                    r_el = p_soup.select_one("div.XQDdHH") or p_soup.select_one("div._3LWZlK")
+                    if r_el: rating = r_el.text.strip()
+
+                    # SPECS
                     specs = ""
-                    # Table Strategy
                     rows = p_soup.select("tr._1s_Smc") or p_soup.select("tr.row")
                     if rows:
                         specs = " | ".join([f"{r.find_all('td')[0].text}: {r.find_all('td')[1].text}" for r in rows if len(r.find_all('td'))==2])
                     else:
-                        # Highlights Strategy
+                        # Highlights fallback
                         lis = p_soup.select("div._2418kt ul li")
                         specs = " | ".join([li.text for li in lis])
 
+                    # SAVE
                     if price > 0:
                         callback({
-                            "name": title, "price": price, "rating": rating, 
+                            "name": name, "price": price, "rating": rating, 
                             "link": link, "specs": specs[:800], "source": "Flipkart"
                         })
                         count += 1
+                        # log.info(f"   ✅ Saved Flipkart Item: {name[:20]}")
 
                 except Exception as e:
                     log.error(f"Flipkart Item Error: {e}")
