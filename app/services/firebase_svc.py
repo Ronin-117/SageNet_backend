@@ -207,4 +207,28 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Firestore Save Error: {e}")
 
+    def append_search_result(self, job_id: str, product: dict):
+        """
+        Adds a single product to the 'raw_products' array in Firestore.
+        Uses arrayUnion to append without overwriting.
+        """
+        try:
+            self.db.collection('searches').document(job_id).set({
+                'status': 'processing',
+                'raw_products': firestore.ArrayUnion([product]),
+                'last_updated': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            log.info(f"Appended 1 item to Job {job_id}")
+        except Exception as e:
+            log.error(f"Firestore Append Error: {e}")
+            
+    def mark_search_complete(self, job_id: str, count: int):
+        try:
+            self.db.collection('searches').document(job_id).update({
+                'status': 'scraped',
+                'total_items': count,
+                'completed_at': firestore.SERVER_TIMESTAMP
+            })
+        except: pass
+
 firebase_svc = FirebaseService()
