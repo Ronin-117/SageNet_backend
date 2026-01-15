@@ -266,6 +266,40 @@ class InfluxService:
             log.error(f"Inference Data Fetch Error: {e}")
             return []
 
+    def get_user_daily_usage(self, owner_uid: str, days: int = 30) -> list:
+        """
+        Gets total energy (kWh) per day for ALL devices belonging to a user.
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -{days}d)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
+              |> filter(fn: (r) => r["_field"] == "total_power")
+              
+              // 1. Group by Time only (Merge all devices)
+              |> group(columns: ["_time"])
+              |> sum() // Sum power of all devices at each timestamp
+              
+              // 2. Aggregate to Daily kWh
+              |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
+            '''
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            usage = []
+            for table in result:
+                for record in table.records:
+                    # Watts -> kWh per day
+                    val = record.get_value() or 0.0
+                    kwh = (val * 24.0) / 1000.0
+                    usage.append(kwh)
+            return usage
+        except Exception as e:
+            log.error(f"User Usage Query Error: {e}")
+            return []
+            
     def close(self):
         self.client.close()
 

@@ -50,3 +50,12 @@ class ShopResponse(BaseModel):
     job_id: str
     status: str
     message: str
+
+class BillPredictionResponse(BaseModel):
+    device_id: str
+    currency: str = "INR"
+    units_consumed: float
+    units_forecasted: float
+    bill_current: float
+    bill_forecasted: float
+    tariff_plan: str # "KSEB Domestic LT-1A"

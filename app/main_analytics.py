@@ -6,23 +6,10 @@ from app.services.influx_svc import influx_svc
 from app.services.anomaly_svc import anomaly_svc
 from app.core.config import settings
 from app.core.logger import setup_logger
+from app.services.tariffs.tariff_manager import tariff_mgr
+from app.services.forecast_svc import forecast_svc
 
 log = setup_logger("AnalyticsWorker")
-
-def job_calculate_bills():
-    """Runs hourly to update billing stats"""
-    log.info("💰 Starting Hourly Billing Calculation...")
-    try:
-        # Fetch all devices (In prod, use pagination or a specific collection query)
-        # For now, we iterate known devices from Firestore
-        devices_ref = firebase_svc.db.collection('devices')
-        for doc in devices_ref.stream():
-            device_id = doc.id
-            # ... (Insert your billing logic/service call here) ...
-            # For this step, we focus on Anomaly logic
-            pass 
-    except Exception as e:
-        log.error(f"Billing Job Failed: {e}")
 
 def job_anomaly_lifecycle():
     """
@@ -135,6 +122,48 @@ def job_anomaly_lifecycle():
 
     except Exception as e:
         log.error(f"CRITICAL LOOP FAILURE: {e}")
+
+def job_calculate_bills():
+    log.info("💰 Starting Hourly Billing Calculation...")
+    try:
+        users_ref = firebase_svc.db.collection('users')
+        for doc in users_ref.stream():
+            user_data = doc.to_dict()
+            uid = doc.id
+            
+            # 1. Get User Location & Config
+            location = user_data.get('location', {'country': 'IN', 'state': 'KL'})
+            bill_config = user_data.get('billing_config', {'phase': '1'})
+            
+            # 2. Get Data
+            history = influx_svc.get_user_daily_usage(uid)
+            current_month_kwh = sum(history)
+            
+            # 3. Forecast
+            predicted_total_kwh = forecast_svc.predict_month_end(history)
+            
+            # 4. Calculate Real Bill (Aggregated Slab)
+            bill_real_now = tariff_mgr.calculate_bill(
+                location['country'], location['state'], current_month_kwh, bill_config
+            )
+            bill_predicted = tariff_mgr.calculate_bill(
+                location['country'], location['state'], predicted_total_kwh, bill_config
+            )
+
+            # 5. Save to "billing_reports"
+            firebase_svc.db.collection('billing_reports').document(uid).set({
+                'currency': 'INR',
+                'current_kwh': round(current_month_kwh, 2),
+                'predicted_kwh': round(predicted_total_kwh, 2),
+                'current_bill': bill_real_now,
+                'predicted_bill': bill_predicted,
+                'last_updated': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            
+            log.info(f"Bill calculated for {uid}: ₹{bill_real_now}")
+
+    except Exception as e:
+        log.error(f"Billing Job Error: {e}")
 
 # --- MAIN LOOP ---
 if __name__ == "__main__":
