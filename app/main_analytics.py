@@ -124,25 +124,40 @@ def job_anomaly_lifecycle():
         log.error(f"CRITICAL LOOP FAILURE: {e}")
 
 def job_calculate_bills():
+    """Runs HOURLY. Calculates kWh, Forecasts Month-End, applies KSEB Tariffs."""
     log.info("💰 Starting Hourly Billing Calculation...")
     try:
         users_ref = firebase_svc.db.collection('users')
-        for doc in users_ref.stream():
+        users_list = list(users_ref.stream()) # Convert to list to check count
+        
+        log.info(f"💰 Found {len(users_list)} users in Firestore.")
+
+        for doc in users_list:
             user_data = doc.to_dict()
             uid = doc.id
+            log.info(f"   -> Processing User: {uid}")
             
-            # 1. Get User Location & Config
+            # 1. Get User Config
             location = user_data.get('location', {'country': 'IN', 'state': 'KL'})
-            bill_config = user_data.get('billing_config', {'phase': '1'})
+            bill_config = user_data.get('billing_config', {'phase': '1', 'type': 'domestic'})
             
-            # 2. Get Data
-            history = influx_svc.get_user_daily_usage(uid)
-            current_month_kwh = sum(history)
+            # 2. Get Aggregated Usage
+            log.info(f"      Fetching InfluxDB data for {uid}...")
+            history = influx_svc.get_user_daily_usage(uid, days=30)
             
-            # 3. Forecast
-            predicted_total_kwh = forecast_svc.predict_month_end(history)
+            # DEBUG: Print history
+            log.info(f"      History Points: {len(history)} | Data: {history}")
+
+            if not history:
+                log.warning(f"      ⚠️ No energy data for user {uid}. Saving 0 bill.")
+                current_month_kwh = 0.0
+                predicted_total_kwh = 0.0
+            else:
+                current_month_kwh = sum(history)
+                # 3. Forecast
+                predicted_total_kwh = forecast_svc.predict_month_end(history)
             
-            # 4. Calculate Real Bill (Aggregated Slab)
+            # 4. Calculate Bill
             bill_real_now = tariff_mgr.calculate_bill(
                 location['country'], location['state'], current_month_kwh, bill_config
             )
@@ -150,7 +165,7 @@ def job_calculate_bills():
                 location['country'], location['state'], predicted_total_kwh, bill_config
             )
 
-            # 5. Save to "billing_reports"
+            # 5. Save
             firebase_svc.db.collection('billing_reports').document(uid).set({
                 'currency': 'INR',
                 'current_kwh': round(current_month_kwh, 2),
@@ -160,7 +175,7 @@ def job_calculate_bills():
                 'last_updated': firestore.SERVER_TIMESTAMP
             }, merge=True)
             
-            log.info(f"Bill calculated for {uid}: ₹{bill_real_now}")
+            log.info(f"      ✅ Saved: Used {current_month_kwh:.1f} kWh (₹{bill_real_now}) -> Forecast ₹{bill_predicted}")
 
     except Exception as e:
         log.error(f"Billing Job Error: {e}")
