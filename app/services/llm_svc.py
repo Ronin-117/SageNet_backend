@@ -1,6 +1,5 @@
 import requests
 import json
-import time
 from app.core.config import settings
 from app.core.logger import setup_logger
 
@@ -8,33 +7,49 @@ log = setup_logger("LLMService")
 
 class LLMService:
     def __init__(self):
+        # Localhost works because we are in Host Mode
         self.api_url = "http://127.0.0.1:11434/api/generate"
         self.model_name = "shopping-guru" 
 
-    def analyze_products(self, query: str, budget: float, products: list):
+    def analyze_products(self, query: str, budget: float, products: list, current_device_specs: dict = None):
+        """
+        1. Formats the One-Shot Prompt.
+        2. Sends to Ollama (JSON Mode).
+        3. Maps Indices back to Real Products.
+        """
         if not products:
             return None
 
-        # 1. Prepare Context (Minified for Token Efficiency)
-        # We explicitly add 'id' which corresponds to the list index
+        # 1. Prepare Context (Minified to save tokens)
+        # We assign an explicit ID to help the model
         context_list = []
         for i, p in enumerate(products):
             context_list.append({
                 "id": i,
-                "name": p['name'][:60], # Truncate for speed
+                "name": p['name'][:60], # Truncate long names
                 "price": p['price'],
                 "rating": p['rating'],
-                "specs": p['specs'][:120] # Keep essential specs
+                "specs": p['specs'][:120] # Truncate specs
             })
         
-        input_json = json.dumps({
+        # Prepare Input JSON
+        input_data = {
             "query": query,
             "budget": budget,
             "products": context_list
-        })
+        }
+        
+        # Add Current Device Context if available (For future anomaly upgrades)
+        if current_device_specs:
+            input_data["current_device_comparison"] = {
+                "note": "Find a better alternative to my current device:",
+                "details": current_device_specs
+            }
+        
+        input_json = json.dumps(input_data)
 
-        # 2. Construct Prompt (The "One-Shot" Strategy from Docs)
-        # We teach the model exactly what we want: Indices Only.
+        # 2. Construct Prompt (One-Shot Strategy)
+        # We inject a fake example to force the model to behave
         one_shot = """
 <start_of_turn>user
 Analyze.
@@ -57,7 +72,7 @@ Context: {"products": [{"id": 0, "name": "Bad Item", "price": 5000, "rating": "2
             payload = {
                 "model": self.model_name,
                 "prompt": final_prompt,
-                "format": "json", # Enforces JSON syntax
+                "format": "json", # Enforces JSON grammar automatically
                 "stream": False,
                 "options": {
                     "temperature": 0.2, # Low temp for logic
@@ -66,7 +81,7 @@ Context: {"products": [{"id": 0, "name": "Bad Item", "price": 5000, "rating": "2
             }
 
             # Extended timeout for 1GB RAM Server (Swap is slow)
-            res = requests.post(self.api_url, json=payload, timeout=900)
+            res = requests.post(self.api_url, json=payload, timeout=400)
             
             if res.status_code == 200:
                 result_json = res.json()

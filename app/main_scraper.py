@@ -32,6 +32,7 @@ def process_jobs():
                 job_id = job_data['job_id']
                 query = job_data['query']
                 budget = job_data.get('budget', 0.0) 
+                current_device = job_data.get('current_device', None)
                 
                 log.info(f"Processing Job {job_id}: {query}")
 
