@@ -233,6 +233,7 @@ class FirebaseService:
     
     def save_analysis(self, job_id: str, analysis: dict):
         try:
+            # This adds 'ai_analysis' field alongside 'raw_products'
             self.db.collection('searches').document(job_id).update({
                 'ai_analysis': analysis,
                 'status': 'analyzed'
