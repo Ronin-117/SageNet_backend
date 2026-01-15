@@ -70,7 +70,7 @@ Context: {"products": [{"id": 0, "name": "Bad Item", "price": 5000, "rating": "2
                 }
             }
 
-            res = requests.post(self.api_url, json=payload, timeout=60)
+            res = requests.post(self.api_url, json=payload, timeout=900)
             
             if res.status_code == 200:
                 result_json = res.json()
