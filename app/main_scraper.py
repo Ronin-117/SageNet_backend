@@ -31,6 +31,7 @@ def process_jobs():
                 job_data = json.loads(data_str)
                 job_id = job_data['job_id']
                 query = job_data['query']
+                budget = job_data.get('budget', 0.0) 
                 
                 log.info(f"Processing Job {job_id}: {query}")
 

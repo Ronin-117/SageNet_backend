@@ -105,7 +105,7 @@ def trigger_shopping_agent(
     # FIX: Removed verify_ownership("global", uid) 
     # because Shopping is a User feature, not linked to a specific ESP32.
     
-    job_id = queue_svc.push_scraper_job(payload.query, uid)
+    job_id = queue_svc.push_scraper_job(payload.query, payload.budget, uid)
     
     if not job_id:
         raise HTTPException(status_code=500, detail="Failed to queue job. Redis unavailable.")

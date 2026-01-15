@@ -3,6 +3,7 @@ import json
 import uuid
 from app.core.config import settings
 from app.core.logger import setup_logger
+import time 
 
 log = setup_logger("QueueService")
 
@@ -22,25 +23,21 @@ class QueueService:
             log.error(f"❌ Redis Connection Failed: {e}")
             self.redis = None
 
-    def push_scraper_job(self, query: str, uid: str) -> str:
-        """
-        Pushes a scraping task to the queue. Returns the Job ID.
-        """
-        if not self.redis:
-            return None
+    def push_scraper_job(self, query: str, budget: float, uid: str) -> str:
+        if not self.redis: return None
 
         job_id = str(uuid.uuid4())
         
         job_data = {
             "job_id": job_id,
             "query": query,
+            "budget": budget,
             "uid": uid,
             "status": "queued",
             "timestamp": time.time()
         }
 
         try:
-            # Push to 'scraper_jobs' list (The Worker listens to this)
             self.redis.rpush("scraper_jobs", json.dumps(job_data))
             log.info(f"Job {job_id} pushed to queue")
             return job_id
@@ -48,5 +45,5 @@ class QueueService:
             log.error(f"Failed to push job: {e}")
             return None
 
-import time # Imported late to avoid circular issues if any
+
 queue_svc = QueueService()
