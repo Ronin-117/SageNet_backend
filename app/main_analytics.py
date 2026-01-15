@@ -6,7 +6,7 @@ from app.services.influx_svc import influx_svc
 from app.services.anomaly_svc import anomaly_svc
 from app.core.config import settings
 from app.core.logger import setup_logger
-from app.services.tariffs.tariff_manager import tariff_mgr
+from app.services.tariff_manager import tariff_mgr
 from app.services.forecast_svc import forecast_svc
 
 log = setup_logger("AnalyticsWorker")
