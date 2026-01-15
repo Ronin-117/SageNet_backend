@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.logger import setup_logger
 from app.services.tariff_manager import tariff_mgr
 from app.services.forecast_svc import forecast_svc
+from firebase_admin import firestore
 
 log = setup_logger("AnalyticsWorker")
 
