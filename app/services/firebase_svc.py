@@ -230,5 +230,14 @@ class FirebaseService:
                 'completed_at': firestore.SERVER_TIMESTAMP
             })
         except: pass
+    
+    def save_analysis(self, job_id: str, analysis: dict):
+        try:
+            self.db.collection('searches').document(job_id).update({
+                'ai_analysis': analysis,
+                'status': 'analyzed'
+            })
+        except Exception as e:
+            log.error(f"Analysis Save Error: {e}")
 
 firebase_svc = FirebaseService()

@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.core.logger import setup_logger
 from app.services.scraper_svc import scraper_svc
 from app.services.firebase_svc import firebase_svc
+from app.services.llm_svc import llm_svc
 
 log = setup_logger("ScraperWorker")
 
@@ -32,17 +33,31 @@ def process_jobs():
                 query = job_data['query']
                 
                 log.info(f"Processing Job {job_id}: {query}")
+
+                # Capture items in memory for AI
+                collected_items = [] 
                 
                 # Define the callback function
                 def on_item_found(item):
+                    collected_items.append(item)
                     firebase_svc.append_search_result(job_id, item)
 
                 # Execute
-                total_count = scraper_svc.scrape_all_stream(query, on_item_found)
+                scraper_svc.scrape_all_stream(query, on_item_found)
+
+                # --- START AI ANALYSIS ---
+                if collected_items:
+                    log.info("🔍 Running AI Analysis...")
+                    analysis = llm_svc.analyze_products(query, budget, collected_items)
+                    
+                    if analysis:
+                        # Save Analysis to Firestore
+                        firebase_svc.save_analysis(job_id, analysis)
+                        log.info("✅ AI Analysis Saved.")
                 
                 # Mark Done
-                firebase_svc.mark_search_complete(job_id, total_count)
-                log.info(f"Job {job_id} Completed. Found {total_count} items.")
+                firebase_svc.mark_search_complete(job_id, len(collected_items))
+                log.info(f"Job {job_id} Completed. Found {len(collected_items)} items.")
                 
             except Exception as e:
                 log.error(f"Job Failed: {e}")
