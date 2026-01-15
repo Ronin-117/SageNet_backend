@@ -81,7 +81,7 @@ Context: {"products": [{"id": 0, "name": "Bad Item", "price": 5000, "rating": "2
             }
 
             # Extended timeout for 1GB RAM Server (Swap is slow)
-            res = requests.post(self.api_url, json=payload, timeout=900)
+            res = requests.post(self.api_url, json=payload, timeout=1800)
             
             if res.status_code == 200:
                 result_json = res.json()
