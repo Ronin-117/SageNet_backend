@@ -39,14 +39,14 @@ class AnomalyService:
 
     def train_model(self, device_id: str, channel: int, data: list) -> float:
         """
-        Trains model on CPU, saves .pth, returns calculated threshold.
+        Trains model and calculates a PHYSICS-AWARE threshold.
         """
         seq_len = settings.ANOMALY_SEQUENCE_LENGTH
         if len(data) < (seq_len * 5):
-            log.warning(f"Not enough data to train ({len(data)} points). Need {seq_len*5}+")
+            log.warning(f"Not enough data to train ({len(data)} points).")
             return 0.0
 
-        log.info(f"Training started for {device_id} Ch {channel} with {len(data)} points...")
+        log.info(f"Training started for {device_id} Ch {channel}...")
 
         # 1. Prepare Data
         X, y = [], []
@@ -57,42 +57,59 @@ class AnomalyService:
         X_tensor = torch.tensor(X, dtype=torch.float32).unsqueeze(-1)
         y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(-1)
         
-        # 2. Init Model (CPU)
+        # 2. Init Model
         model = TransformerForecaster()
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         
-        # 3. Train Loop
-        epochs = 15
+        # 3. Train
         model.train()
-        for epoch in range(epochs):
+        for epoch in range(15):
             optimizer.zero_grad()
             pred = model(X_tensor)
             loss = criterion(pred, y_tensor)
             loss.backward()
             optimizer.step()
         
-        # 4. Calculate Dynamic Threshold
+        # 4. Calculate Threshold (THE FIX)
         model.eval()
         with torch.no_grad():
             preds = model(X_tensor).squeeze().numpy()
             actuals = y_tensor.squeeze().numpy()
+            
+            # A. Statistical Threshold
             errors = np.abs(preds - actuals)
-            # Threshold = Mean Error + 3 Standard Deviations (99.7% confidence)
-            threshold = float(np.mean(errors) + 3 * np.std(errors))
+            stat_threshold = float(np.mean(errors) + 3 * np.std(errors))
+            
+            # B. Physics Threshold (Max 40% of the Average Load)
+            avg_load = float(np.mean(actuals))
+            physics_cap = avg_load * 0.40 
+            
+            # Safety: If load is tiny (e.g. 5W), 40% is too small (2W). 
+            # We set a hard floor of 5W to prevent false alarms on noise.
+            if physics_cap < 5.0:
+                physics_cap = 5.0
 
-        # 5. Save Artifacts
+            # C. Final Decision: Pick the TIGHTER one, but respect the floor
+            # If Stat says 80W (Bad), and Physics says 20W (Good) -> Pick 20W.
+            # If Stat says 2W (Too tight), and Physics says 5W -> Pick 5W.
+            
+            threshold = min(stat_threshold, physics_cap)
+            
+            # Double Safety: If stats were wildly wrong, use Physics Cap
+            if stat_threshold > avg_load:
+                threshold = physics_cap
+                log.info(f"   -> Statistical threshold ({stat_threshold:.2f}) was crazy. Clamped to {threshold:.2f}")
+
+        # 5. Save
         torch.save(model.state_dict(), self._get_model_path(device_id, channel))
         with open(self._get_thresh_path(device_id, channel), "w") as f:
             f.write(str(threshold))
 
-        log.info(f"Training Complete. Threshold: {threshold:.4f}")
+        log.info(f"Training Complete. Load: {avg_load:.1f}W | Threshold: {threshold:.4f}W")
         
-        # 6. Cleanup RAM
-        del model
-        del X_tensor
-        del y_tensor
-        gc.collect() # Force garbage collection
+        del model, X_tensor, y_tensor
+        gc.collect()
         
         return threshold
 
