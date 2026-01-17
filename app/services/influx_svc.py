@@ -266,9 +266,10 @@ class InfluxService:
             log.error(f"Inference Data Fetch Error: {e}")
             return []
 
-    def get_user_daily_usage(self, owner_uid: str, days: int = 30) -> list:
+    def get_user_daily_usage(self, owner_uid: str, days: int = 60) -> list:
         """
-        Gets total energy (kWh) per day for ALL devices belonging to a user.
+        Gets Daily kWh for the last N days.
+        Logic: Takes Minute-by-Minute Watts -> Averages them to 1 Day -> Converts to kWh.
         """
         try:
             bucket = settings.INFLUX_BUCKET
@@ -279,22 +280,29 @@ class InfluxService:
               |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
               |> filter(fn: (r) => r["_field"] == "total_power")
               
-              // 1. Group by Time only (Merge all devices)
+              // 1. Group by time to merge all devices owned by user
               |> group(columns: ["_time"])
-              |> sum() // Sum power of all devices at each timestamp
+              |> sum() 
               
-              // 2. Aggregate to Daily kWh
-              |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
+              // 2. Ungroup to process as single timeline
+              |> group()
+              
+              // 3. CRITICAL: Force Daily Buckets
+              // Takes 1440 minute-points and makes 1 Day-Point.
+              // createEmpty: true + fill(0.0) ensures we get a '0' if device was unplugged.
+              |> aggregateWindow(every: 1d, fn: mean, createEmpty: true)
+              |> fill(value: 0.0)
             '''
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
             usage = []
             for table in result:
                 for record in table.records:
-                    # Watts -> kWh per day
+                    # Logic: Average Watts * 24 Hours / 1000 = kWh
                     val = record.get_value() or 0.0
                     kwh = (val * 24.0) / 1000.0
                     usage.append(kwh)
+            
             return usage
         except Exception as e:
             log.error(f"User Usage Query Error: {e}")
