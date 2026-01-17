@@ -269,7 +269,7 @@ class InfluxService:
     def get_user_daily_usage(self, owner_uid: str, days: int = 60) -> list:
         """
         Gets Daily kWh for the last N days.
-        Logic: Takes Minute-by-Minute Watts -> Averages them to 1 Day -> Converts to kWh.
+        Forces strict 1-day windows to match the Python math (x24).
         """
         try:
             bucket = settings.INFLUX_BUCKET
@@ -280,26 +280,22 @@ class InfluxService:
               |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
               |> filter(fn: (r) => r["_field"] == "total_power")
               
-              // 1. Group by time to merge all devices owned by user
+              // 1. Group all devices together
               |> group(columns: ["_time"])
-              |> sum() 
-              
-              // 2. Ungroup to process as single timeline
+              |> sum()
               |> group()
               
-              // 3. CRITICAL: Force Daily Buckets
-              // Takes 1440 minute-points and makes 1 Day-Point.
-              // createEmpty: true + fill(0.0) ensures we get a '0' if device was unplugged.
-              |> aggregateWindow(every: 1d, fn: mean, createEmpty: true)
-              |> fill(value: 0.0)
+              // 2. Window by EXACTLY 1 Day (every: 1d)
+              // This ensures each point represents a 24h block
+              |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
             '''
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
             usage = []
             for table in result:
                 for record in table.records:
-                    # Logic: Average Watts * 24 Hours / 1000 = kWh
                     val = record.get_value() or 0.0
+                    # Now this formula is valid because the window is confirmed 24h
                     kwh = (val * 24.0) / 1000.0
                     usage.append(kwh)
             
