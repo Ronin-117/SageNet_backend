@@ -138,45 +138,43 @@ def job_calculate_bills():
             location = user_data.get('location', {'country': 'IN', 'state': 'KL'})
             bill_config = user_data.get('billing_config', {'phase': '1', 'type': 'domestic'})
             
-            # 2. Get 60 Days History (For AI Trends)
+            # 2. Get Data
             history = influx_svc.get_user_daily_usage(uid, days=60)
             
             if not history:
                 continue
 
-            # 3. Filter for Current Bill (This Month Only)
-            # Example: If today is Jan 17, we grab the last 17 items.
+            # 3. Filter for Current Bill
             current_day_of_month = datetime.now().day
-            
-            # Safety: If history is shorter than current day (new user), take all of it
             slice_idx = -current_day_of_month if len(history) >= current_day_of_month else 0
             current_cycle_usage = history[slice_idx:] 
             
-            # Sum up THIS MONTH'S usage
-            current_month_kwh = sum(current_cycle_usage)
+            # Sum up (Convert to standard float immediately)
+            current_month_kwh = float(sum(current_cycle_usage))
             
-            # 4. Forecast Month End (Uses FULL 60-day history for better accuracy)
-            predicted_total_kwh = forecast_svc.predict_month_end(history)
+            # 4. Forecast
+            # forecast_svc returns a float (or numpy float), we cast it to be safe
+            predicted_total_kwh = float(forecast_svc.predict_month_end(history))
             
             # 5. Calculate Price
-            bill_real_now = tariff_mgr.calculate_bill(
+            bill_real_now = float(tariff_mgr.calculate_bill(
                 location['country'], location['state'], current_month_kwh, bill_config
-            )
-            bill_predicted = tariff_mgr.calculate_bill(
+            ))
+            bill_predicted = float(tariff_mgr.calculate_bill(
                 location['country'], location['state'], predicted_total_kwh, bill_config
-            )
+            ))
 
-            # 6. Save
+            # 6. Save (Now using clean Python floats)
             firebase_svc.db.collection('billing_reports').document(uid).set({
                 'currency': 'INR',
                 'current_kwh': round(current_month_kwh, 2),
                 'predicted_kwh': round(predicted_total_kwh, 2),
-                'current_bill': bill_real_now,
-                'predicted_bill': bill_predicted,
+                'current_bill': round(bill_real_now, 2),
+                'predicted_bill': round(bill_predicted, 2),
                 'last_updated': firestore.SERVER_TIMESTAMP
             }, merge=True)
             
-            log.info(f"User {uid}: Used {current_month_kwh:.2f} kWh (₹{bill_real_now})")
+            log.info(f"User {uid}: Used {current_month_kwh:.2f} kWh (₹{bill_real_now:.2f}) -> Forecast ₹{bill_predicted:.2f}")
 
     except Exception as e:
         log.error(f"Billing Job Error: {e}")
