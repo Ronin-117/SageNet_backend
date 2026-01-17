@@ -276,13 +276,14 @@ class InfluxService:
               |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
               |> filter(fn: (r) => r["_field"] == "total_power")
               
-              // 1. DROP ALL TAGS except time (Merges all devices/streams into one)
-              |> group() 
+              // 1. Group ALL series into one (Merge devices)
+              |> group()
               
-              // 2. Aggregate to 1 Day
+              // 2. Window by 1 Day. Take the MEAN (Average Power in Watts)
               |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
               
-              // 3. Sort ensures clean order
+              // 3. Ensure we don't get duplicates
+              |> unique(column: "_time")
               |> sort(columns: ["_time"])
             '''
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
@@ -290,12 +291,15 @@ class InfluxService:
             usage = []
             for table in result:
                 for record in table.records:
-                    val = record.get_value() or 0.0
-                    kwh = (val * 24.0) / 1000.0
+                    # Value is "Average Watts" for that day.
+                    # Formula: Avg Watts * 24 Hours / 1000 = kWh
+                    avg_watts = record.get_value() or 0.0
+                    kwh = (avg_watts * 24.0) / 1000.0
                     usage.append(kwh)
             
-            # DEBUG: Ensure we don't have duplicates
-            log.info(f"Daily Usage Points Found: {len(usage)}")
+            # DEBUG: Print how many days we found
+            log.info(f"Daily Usage Points (Should be < {days}): {len(usage)}")
+            
             return usage
         except Exception as e:
             log.error(f"User Usage Query Error: {e}")
