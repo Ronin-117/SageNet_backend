@@ -15,19 +15,39 @@ owner_cache = {}
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
         log.info("Connected to HiveMQ Broker")
+        # 1. Listen for Direct Telemetry (Gateways)
         client.subscribe("evt/+/telem")
+        # 2. Listen for Proxy Telemetry (Satellites via Gateway)
+        client.subscribe("evt/+/proxy")
     else:
         log.error(f"Connection Failed. RC: {rc}")
 
 def on_message(client, userdata, msg):
     try:
+        # Topic format: evt/{gateway_id}/{type}
         topic_parts = msg.topic.split('/')
-        device_id = topic_parts[1]
+        topic_id = topic_parts[1]
+        msg_type = topic_parts[2] # 'telem' or 'proxy'
+        
         payload = json.loads(msg.payload.decode())
 
-        # Enrichment
+        # --- STEP 1: IDENTIFY REAL DEVICE ---
+        device_id = topic_id # Default to the sender (Gateway)
+
+        if msg_type == "proxy":
+            # If this is a proxy message, the REAL device ID is inside the JSON
+            if 'real_device' in payload:
+                device_id = payload['real_device']
+                # Optional: Log occasionally to verify mesh works
+                # log.info(f"Received Mesh Data for {device_id} via {topic_id}")
+            else:
+                log.warning(f"Proxy message from {topic_id} missing 'real_device' field.")
+                return
+
+        # --- STEP 2: ENRICHMENT (Owner Lookup) ---
         owner_id = owner_cache.get(device_id)
         if not owner_id:
+            # Look up the OWNER of the REAL DEVICE (Satellite or Gateway)
             owner_id = firebase_svc.get_device_owner(device_id)
             if owner_id:
                 owner_cache[device_id] = owner_id
@@ -35,12 +55,14 @@ def on_message(client, userdata, msg):
                 log.warning(f"Unknown Device: {device_id}")
                 return
         
-        # Update live state
+        # --- STEP 3: SYNC STATE (For Mobile App UI) ---
         if 's' in payload:
             # payload['s'] is [1, 0, 1, 0]
+            # This updates the green/grey buttons in the app immediately
             firebase_svc.update_device_state(device_id, payload['s'])
 
-        # Storage
+        # --- STEP 4: STORAGE (InfluxDB) ---
+        # Write data to the bucket for Graphs and AI
         influx_svc.write_telemetry(device_id, owner_id, payload)
 
     except Exception as e:
