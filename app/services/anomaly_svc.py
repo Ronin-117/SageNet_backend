@@ -159,11 +159,11 @@ class AnomalyService:
             gc.collect()
 
             # SUCCESS RETURN (3 Values)
-            return is_anomaly, error, threshold
+            return is_anomaly, error, threshold, float(pred), float(target)
 
         except Exception as e:
             log.error(f"Inference failed: {e}")
             # ERROR RETURN (MUST BE 3 VALUES)
-            return False, 0.0, 0.0
+            return False, 0.0, 0.0, 0.0, 0.0
 
 anomaly_svc = AnomalyService()

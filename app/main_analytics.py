@@ -112,8 +112,12 @@ def job_anomaly_lifecycle():
                                 
                                 if warmup_ok:
                                     seq = influx_svc.get_inference_sequence(device_id, channel)
-                                    is_anomaly, error, thresh = anomaly_svc.detect(device_id, channel, seq)
+                                    is_anomaly, error, thresh, pred, actual = anomaly_svc.detect(device_id, channel, seq)
+
+                                    avg_hist = sum(seq) / len(seq) if seq else 0.0
                                     
+                                    log.info(f"[{device_id} Ch{channel}] Stats -> Act: {actual:.2f}W | Pred: {pred:.2f}W | Avg(24m): {avg_hist:.2f}W | Thresh: {thresh:.2f}")
+
                                     if is_anomaly:
                                         log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
                                         firebase_svc.send_alert(device_id, "⚠️ Energy Anomaly", f"Check Channel {channel}")
