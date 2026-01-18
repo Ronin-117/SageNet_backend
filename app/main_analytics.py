@@ -55,7 +55,7 @@ def job_anomaly_lifecycle():
                         if status == 'disabled': 
                             continue
 
-                        log.info(f"Processing {device_id} Ch{channel} [{status}]")
+                        # log.info(f"Processing {device_id} Ch{channel} [{status}]")
 
                         # --- STATE: LEARNING ---
                         if status == 'learning':
@@ -90,16 +90,25 @@ def job_anomaly_lifecycle():
 
                         # --- STATE: MONITORING ---
                         elif status == 'monitoring':
-                            if channel < len(live_state) and live_state[channel] == 1:
+                            current_val = live_state[channel] if channel < len(live_state) else 0
+                            
+                            is_active = False
+                            try: is_active = int(current_val) == 1
+                            except: pass
+
+                            if is_active:
+                                # ONLY LOG NOW - WHEN WE ACTUALLY DO SOMETHING
+                                log.info(f"[{device_id} Ch{channel}] Monitoring Active (Device ON)")
                                 
-                                # Warm-up Check
                                 warmup_ok = True
                                 if channel < len(last_switched) and last_switched[channel]:
-                                    switched_time = datetime.fromisoformat(last_switched[channel])
-                                    diff_min = (datetime.now(timezone.utc) - switched_time).total_seconds() / 60
-                                    
-                                    if diff_min < settings.ANOMALY_WARMUP_MINUTES:
-                                        warmup_ok = False
+                                    try:
+                                        switched_time = datetime.fromisoformat(last_switched[channel])
+                                        diff_min = (datetime.now(timezone.utc) - switched_time).total_seconds() / 60
+                                        if diff_min < settings.ANOMALY_WARMUP_MINUTES: 
+                                            warmup_ok = False
+                                            log.info(f"   -> Warming up ({diff_min:.1f}m left)")
+                                    except: pass
                                 
                                 if warmup_ok:
                                     seq = influx_svc.get_inference_sequence(device_id, channel)
@@ -107,11 +116,10 @@ def job_anomaly_lifecycle():
                                     
                                     if is_anomaly:
                                         log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
-                                        firebase_svc.send_alert(
-                                            device_id=device_id,
-                                            title="⚠️ Energy Anomaly Detected",
-                                            body=f"Unusual power usage detected on Channel {channel}. Check your appliance."
-                                        )
+                                        firebase_svc.send_alert(device_id, "⚠️ Energy Anomaly", f"Check Channel {channel}")
+                            else:
+                                # Device is OFF. Silence.
+                                pass
 
                     except Exception as e:
                         log.error(f"Error processing Channel {channel} on {device_id}: {e}")
