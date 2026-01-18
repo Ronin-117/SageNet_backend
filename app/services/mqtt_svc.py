@@ -58,4 +58,18 @@ class MqttService:
             log.error(f"Publish Exception: {e}")
             return False
 
+    def send_adoption_command(self, gateway_id: str, orphan_mac: str, user_uid: str):
+        """
+        Tells the Gateway to transmit the Adoption Ticket via ESP-NOW.
+        """
+        topic = f"cmd/{gateway_id}/set"
+        payload = json.dumps({
+            "hive_adopt": {
+                "mac": orphan_mac,
+                "uid": user_uid
+            }
+        })
+        # QOS 1 ensures delivery to Gateway
+        return self.client.publish(topic, payload, qos=1)
+
 mqtt_svc = MqttService()

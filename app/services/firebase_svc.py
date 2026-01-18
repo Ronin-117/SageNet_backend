@@ -241,4 +241,26 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Analysis Save Error: {e}")
 
+    def register_satellite(self, mac_address: str, owner_id: str, gateway_id: str, name: str):
+        try:
+            self.db.collection('devices').document(mac_address).set({
+                'owner_id': owner_id,
+                'friendly_name': name,
+                'type': 'satellite',
+                'parent_gateway': gateway_id,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'live_state': [0, 0, 0, 0] # Initialize state
+            })
+            
+            # Link to User
+            self.db.collection('users').document(owner_id).update({
+                'owned_devices': firestore.ArrayUnion([mac_address])
+            })
+            
+            log.info(f"Satellite {mac_address} registered to {owner_id}")
+            return True
+        except Exception as e:
+            log.error(f"Satellite Reg Error: {e}")
+            return False
+
 firebase_svc = FirebaseService()

@@ -81,3 +81,8 @@ class ActivityResponse(BaseModel):
     resolution: str = "30m"
     # Returns a dictionary: "0": [points], "1": [points]
     channels: Dict[str, List[ActivityPoint]]
+
+class AdoptionRequest(BaseModel):
+    gateway_id: str  # The parent device ID
+    orphan_mac: str  # The MAC address found via discovery
+    name: str = "New Switch"

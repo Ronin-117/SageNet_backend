@@ -12,7 +12,8 @@ from app.models.schemas import (
     DailyUsagePoint,
     DeviceClaimRequest,
     ActivityResponse,
-    ActivityPoint
+    ActivityPoint,
+    AdoptionRequest
 )
 from app.services.mqtt_svc import mqtt_svc
 from app.services.influx_svc import influx_svc
@@ -154,3 +155,45 @@ def get_device_activity(
         )
     except Exception as e:
         raise InfluxQueryError(str(e))
+
+
+@router.post("/adopt", response_model=CommandResponse)
+def adopt_device(
+    payload: AdoptionRequest,
+    uid: str = Depends(get_current_user)
+):
+    """
+    1. Verify user owns the Gateway.
+    2. Register the Orphan in DB.
+    3. Send MQTT command to Gateway to transmit credentials.
+    """
+    # 1. Security Check (User must own the Gateway to use it for adoption)
+    verify_ownership(payload.gateway_id, uid)
+
+    # 2. Register in Database
+    db_success = firebase_svc.register_satellite(
+        payload.orphan_mac, 
+        uid, 
+        payload.gateway_id, 
+        payload.name
+    )
+    
+    if not db_success:
+        raise HTTPException(status_code=500, detail="Database Registration Failed")
+
+    # 3. Send Command to Gateway
+    mqtt_success = mqtt_svc.send_adoption_command(
+        payload.gateway_id, 
+        payload.orphan_mac, 
+        uid
+    )
+
+    if not mqtt_success:
+        # Rollback DB? Or just let user retry.
+        raise HTTPException(status_code=500, detail="Failed to send command to Gateway")
+
+    return CommandResponse(
+        device=payload.orphan_mac,
+        action="Adoption Signal Sent",
+        status="success"
+    )
