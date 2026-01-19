@@ -34,4 +34,4 @@ async def shutdown_event():
 @app.get("/", tags=["Health"])
 def health_check():
     # Change the version string to something unique
-    return {"status": "healthy", "version": "2.3.0-AUTOMATED-TEST"}
+    return {"status": "healthy", "version": "2.3.0"}
