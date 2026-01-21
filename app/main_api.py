@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from app.core.logger import setup_logger
 from app.services.mqtt_svc import mqtt_svc
 from app.api.v1.api import api_router
+from fastapi.middleware.cors import CORSMiddleware 
 
 # 1. Setup Logging
 log = setup_logger("API_Main")
@@ -13,6 +14,14 @@ app = FastAPI(
     description="Enterprise-grade IoT Backend for SageNet Energy",
     docs_url="/docs",
     redoc_url="/redoc"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (Mobile App, Web, Postman)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers (Authorization, Content-Type)
 )
 
 # 3. Register Routers
