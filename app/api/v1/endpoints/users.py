@@ -130,3 +130,19 @@ def update_profile(
         status="success", 
         message="Profile updated successfully"
     )
+
+@router.post("/sync_devices", response_model=GeneralResponse)
+def sync_devices(uid: str = Depends(get_current_user)):
+    """
+    Force-updates the User's 'owned_devices' list by scanning the device registry.
+    Fixes 'missing device' issues.
+    """
+    count = firebase_svc.sync_user_device_list(uid)
+    
+    if count == -1:
+        raise HTTPException(status_code=500, detail="Sync failed")
+        
+    return GeneralResponse(
+        status="success",
+        message=f"Synced {count} devices."
+    )

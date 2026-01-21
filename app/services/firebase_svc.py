@@ -298,4 +298,30 @@ class FirebaseService:
             log.error(f"🔥 Firestore Profile Read Error [UID: {uid}]: {e}", exc_info=True)
             return {}
 
+    def sync_user_device_list(self, uid: str) -> int:
+        """
+        Repairs the 'owned_devices' array in the User Profile.
+        It queries ALL devices owned by the user and overwrites the array.
+        """
+        try:
+            # 1. Query all devices where owner_id == uid
+            # Note: Admin SDK bypasses security rules, so this always works.
+            docs = self.db.collection('devices').where('owner_id', '==', uid).stream()
+            
+            # 2. Extract IDs
+            device_ids = [doc.id for doc in docs]
+            
+            # 3. Force Update the User Profile
+            self.db.collection('users').document(uid).set({
+                'owned_devices': device_ids,
+                'last_synced': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            
+            log.info(f"Synced {len(device_ids)} devices for User {uid}")
+            return len(device_ids)
+
+        except Exception as e:
+            log.error(f"Sync Devices Error: {e}")
+            return -1
+
 firebase_svc = FirebaseService()
