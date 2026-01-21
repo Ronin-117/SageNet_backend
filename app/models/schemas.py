@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
+from enum import Enum
 
 
 # ================= INPUT MODELS (REQUESTS) =================
@@ -72,6 +73,14 @@ class DeviceClaimRequest(BaseModel):
     device_id: str
     friendly_name: str = "Smart Switch"
 
+class PhaseType(str, Enum):
+    SINGLE = "1"
+    THREE = "3"
+
+class TariffType(str, Enum):
+    DOMESTIC = "domestic"
+    COMMERCIAL = "commercial"
+
 class ActivityPoint(BaseModel):
     time: str          # ISO Timestamp of the 30-min block
     value: float       # 0.0 to 1.0 (Percentage of time active)
@@ -88,14 +97,27 @@ class AdoptionRequest(BaseModel):
     name: str = "New Switch"
 
 class LocationConfig(BaseModel):
-    country: str = Field("IN", description="ISO Country Code")
-    state: str = Field("KL", description="State Code (e.g., KL for Kerala)")
+    country: str = Field(..., min_length=2, max_length=2, description="ISO Country Code (e.g. IN)")
+    state: str = Field(..., min_length=2, max_length=3, description="State Code (e.g. KL)")
 
 class BillingConfig(BaseModel):
     cycle_start_day: int = Field(1, ge=1, le=28, description="Day of month bill resets")
-    phase: str = Field("1", description="Connection Phase: '1' or '3'")
-    type: str = Field("domestic", description="Tariff Type: 'domestic' or 'commercial'")
+    phase: PhaseType = Field(PhaseType.SINGLE, description="Connection Phase")
+    type: TariffType = Field(TariffType.DOMESTIC, description="Tariff Category")
 
+# Request Model: Registration (Strict - All fields required)
 class UserRegisterRequest(BaseModel):
     location: LocationConfig
     billing_config: BillingConfig
+
+# Request Model: Update (Loose - All fields optional)
+class UserUpdateRequest(BaseModel):
+    location: Optional[LocationConfig] = None
+    billing_config: Optional[BillingConfig] = None
+
+# Response Model: Profile
+class UserProfileResponse(BaseModel):
+    uid: str
+    location: Optional[LocationConfig] = None
+    billing_config: Optional[BillingConfig] = None
+    is_profile_complete: bool = False

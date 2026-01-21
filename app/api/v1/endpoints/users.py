@@ -1,45 +1,130 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from typing import Optional
+from app.core.logger import setup_logger
 from app.dependencies import get_current_user
 from app.services.firebase_svc import firebase_svc
-from app.models.schemas import UserRegisterRequest, GeneralResponse
+from app.models.schemas import UserRegisterRequest, GeneralResponse, UserProfileResponse, UserUpdateRequest
 
 router = APIRouter()
 
 class TokenRequest(BaseModel):
     token: str
 
-@router.post("/fcm", status_code=200)
-def register_token(
+# ==========================================
+# 1. FCM TOKEN REGISTRATION
+# ==========================================
+@router.post("/fcm", status_code=status.HTTP_200_OK)
+def register_fcm_token(
     payload: TokenRequest,
     uid: str = Depends(get_current_user)
 ):
     """
-    Mobile App calls this on startup to register for notifications.
+    Registers the mobile device FCM token for push notifications.
+    Idempotent operation (safe to call multiple times).
     """
-    success = firebase_svc.register_fcm_token(uid, payload.token)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to save token")
+    log.info(f"Registering FCM token for User: {uid}")
     
+    success = firebase_svc.register_fcm_token(uid, payload.token)
+    
+    if not success:
+        # Log is already handled in service, throw specific HTTP error
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
+            detail="Database unavailable, could not save token."
+        )
+
     return {"status": "registered"}
 
-@router.post("/register", response_model=GeneralResponse)
+# ==========================================
+# 2. USER REGISTRATION (Profile Setup)
+# ==========================================
+@router.post("/register", response_model=GeneralResponse, status_code=status.HTTP_201_CREATED)
 def register_user_profile(
     payload: UserRegisterRequest,
     uid: str = Depends(get_current_user)
 ):
     """
-    Call this immediately after Firebase Login to set Location & Billing Config.
+    Initializes the user profile with Location and Billing Config.
+    Call this immediately after Firebase Auth Sign-Up.
     """
-    # Convert Pydantic model to dict (nested)
-    data = payload.model_dump() # For Pydantic v2. Use .dict() if on v1.
+    log.info(f"Initializing Profile for User: {uid}")
+
+    # Convert Pydantic model to Dict
+    data = payload.model_dump()
     
+    # Mark profile as complete for UI logic
+    data['is_profile_complete'] = True
+
     success = firebase_svc.create_or_update_user_profile(uid, data)
-    
+
     if not success:
-        raise HTTPException(status_code=500, detail="Database Write Failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Failed to initialize user profile."
+        )
 
     return GeneralResponse(
         status="success", 
         message="User profile created successfully"
+    )
+
+# ==========================================
+# 3. GET PROFILE
+# ==========================================
+@router.get("/profile", response_model=UserProfileResponse)
+def get_profile(uid: str = Depends(get_current_user)):
+    """
+    Retrieves current user settings.
+    """
+    user_data = firebase_svc.get_user_profile(uid)
+    
+    if not user_data:
+        # Instead of 404, we return an empty profile structure so the UI doesn't crash
+        # The 'is_profile_complete' flag tells UI to show the Setup Screen
+        return UserProfileResponse(uid=uid, is_profile_complete=False)
+
+    return UserProfileResponse(
+        uid=uid,
+        location=user_data.get("location"),
+        billing_config=user_data.get("billing_config"),
+        is_profile_complete=user_data.get("is_profile_complete", False)
+    )
+
+# ==========================================
+# 4. UPDATE PROFILE (PATCH)
+# ==========================================
+@router.patch("/profile", response_model=GeneralResponse)
+def update_profile(
+    payload: UserUpdateRequest, 
+    uid: str = Depends(get_current_user)
+):
+    """
+    Partial update of user settings. 
+    Only fields sent in the body will be updated.
+    """
+    # 1. Filter out None values (exclude_unset=True)
+    # This prevents overwriting existing data with Nulls if the field wasn't sent
+    update_data = payload.model_dump(exclude_unset=True)
+
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="No valid fields provided for update."
+        )
+
+    log.info(f"User {uid} updating fields: {list(update_data.keys())}")
+
+    # 2. Perform Update
+    success = firebase_svc.create_or_update_user_profile(uid, update_data)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Failed to update profile."
+        )
+
+    return GeneralResponse(
+        status="success", 
+        message="Profile updated successfully"
     )

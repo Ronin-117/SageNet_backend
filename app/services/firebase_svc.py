@@ -263,20 +263,39 @@ class FirebaseService:
             log.error(f"Satellite Reg Error: {e}")
             return False
 
-    def create_or_update_user_profile(self, uid: str, data: dict):
+    def create_or_update_user_profile(self, uid: str, data: dict) -> bool:
         """
-        Creates the user document in Firestore with Billing/Location settings.
-        Using set(..., merge=True) ensures we don't overwrite existing tokens/devices.
+        Upserts user profile data.
         """
         try:
-            # Add a timestamp for record keeping
+            # 1. Add Metadata
             data['updated_at'] = firestore.SERVER_TIMESTAMP
             
+            # 2. Write to Firestore
+            # merge=True is CRITICAL. It ensures we don't wipe out 'fcm_tokens' or 'owned_devices'
             self.db.collection('users').document(uid).set(data, merge=True)
-            log.info(f"User Profile created/updated for {uid}")
+            
+            log.info(f"User Profile updated for UID: {uid}")
             return True
+
         except Exception as e:
-            log.error(f"Profile Create Error: {e}")
+            log.error(f"🔥 Firestore Profile Write Error [UID: {uid}]: {e}", exc_info=True)
             return False
+
+    def get_user_profile(self, uid: str) -> dict:
+        """
+        Fetches user document safely.
+        """
+        try:
+            doc = self.db.collection('users').document(uid).get()
+            if doc.exists:
+                return doc.to_dict()
+            
+            log.warning(f"User Profile not found for UID: {uid}")
+            return {}
+
+        except Exception as e:
+            log.error(f"🔥 Firestore Profile Read Error [UID: {uid}]: {e}", exc_info=True)
+            return {}
 
 firebase_svc = FirebaseService()
