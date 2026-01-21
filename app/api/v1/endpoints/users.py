@@ -8,6 +8,8 @@ from app.models.schemas import UserRegisterRequest, GeneralResponse, UserProfile
 
 router = APIRouter()
 
+log = setup_logger("UserRouter")
+
 class TokenRequest(BaseModel):
     token: str
 
