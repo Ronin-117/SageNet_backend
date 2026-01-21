@@ -263,4 +263,20 @@ class FirebaseService:
             log.error(f"Satellite Reg Error: {e}")
             return False
 
+    def create_or_update_user_profile(self, uid: str, data: dict):
+        """
+        Creates the user document in Firestore with Billing/Location settings.
+        Using set(..., merge=True) ensures we don't overwrite existing tokens/devices.
+        """
+        try:
+            # Add a timestamp for record keeping
+            data['updated_at'] = firestore.SERVER_TIMESTAMP
+            
+            self.db.collection('users').document(uid).set(data, merge=True)
+            log.info(f"User Profile created/updated for {uid}")
+            return True
+        except Exception as e:
+            log.error(f"Profile Create Error: {e}")
+            return False
+
 firebase_svc = FirebaseService()

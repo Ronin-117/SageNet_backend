@@ -86,3 +86,16 @@ class AdoptionRequest(BaseModel):
     gateway_id: str  # The parent device ID
     orphan_mac: str  # The MAC address found via discovery
     name: str = "New Switch"
+
+class LocationConfig(BaseModel):
+    country: str = Field("IN", description="ISO Country Code")
+    state: str = Field("KL", description="State Code (e.g., KL for Kerala)")
+
+class BillingConfig(BaseModel):
+    cycle_start_day: int = Field(1, ge=1, le=28, description="Day of month bill resets")
+    phase: str = Field("1", description="Connection Phase: '1' or '3'")
+    type: str = Field("domestic", description="Tariff Type: 'domestic' or 'commercial'")
+
+class UserRegisterRequest(BaseModel):
+    location: LocationConfig
+    billing_config: BillingConfig
