@@ -63,30 +63,30 @@ class InfluxService:
 
     def get_history(self, device_id: str, minutes: int = 60, channel: int = None) -> List[Dict[str, Any]]:
         """
-        Fetches history with dynamic time window and filtering.
-        - minutes: How far back to look.
-        - channel: If None -> Returns Total Power & Voltage. If 0-3 -> Returns specific channel power.
+        Fetches history and merges fields using Python (Safer than Flux Pivot).
         """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # 1. Dynamic Aggregation (Don't return 10k points for a 24h graph)
-            # If requesting > 3 hours, average every 5 mins. 
-            # If > 24 hours, average every 1 hour.
+            # 1. Dynamic Aggregation
+            # If looking back > 3 hours, average data to prevent sending 10k points
             aggregate = ""
             if minutes > 1440: # > 1 Day
                 aggregate = '|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)'
             elif minutes > 180: # > 3 Hours
                 aggregate = '|> aggregateWindow(every: 5m, fn: mean, createEmpty: false)'
             
-            # 2. Field Selection
-            # If channel is None (Whole Board View), get Voltage and Total Power
-            # If channel is 0 (Relay View), get ONLY power_0
+            # 2. Field Filter
             if channel is not None:
+                # Relay View: We only care about that specific channel's power
                 field_filter = f'r["_field"] == "power_{channel}"'
+                target_power_field = f"power_{channel}"
             else:
+                # Board View: We want Voltage and Total Power
                 field_filter = 'r["_field"] == "voltage" or r["_field"] == "total_power"'
+                target_power_field = "total_power"
 
+            # 3. Query (NO PIVOT)
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{minutes}m)
@@ -94,34 +94,41 @@ class InfluxService:
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => {field_filter})
               {aggregate}
-              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
               |> sort(columns: ["_time"])
             '''
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
-            history = []
+            # 4. Python-Side Merging (The Fix)
+            # We use a dictionary keyed by Timestamp to merge rows manually
+            merged_data = {}
+
             for table in result:
                 for record in table.records:
-                    entry = {"time": record.get_time().isoformat()}
+                    # Round time to nearest second to ensure Voltage/Power align
+                    # (InfluxDB sometimes has microsecond offsets)
+                    time_key = record.get_time().isoformat()
                     
-                    if channel is not None:
-                        # Relay View: Just Power
-                        # Note: Influx pivot puts the field name as the key
-                        key = f"power_{channel}"
-                        entry["power"] = record[key] if key in record else 0.0
-                    else:
-                        # Board View: Voltage + Total
-                        entry["voltage"] = record["voltage"] if "voltage" in record else 0.0
-                        entry["power"] = record["total_power"] if "total_power" in record else 0.0
+                    if time_key not in merged_data:
+                        merged_data[time_key] = {"time": time_key, "voltage": 0.0, "power": 0.0}
                     
-                    history.append(entry)
+                    field = record.get_field()
+                    val = record.get_value() or 0.0
+
+                    # Map fields to standard output
+                    if field == "voltage":
+                        merged_data[time_key]["voltage"] = round(val, 1)
+                    elif field == target_power_field:
+                        merged_data[time_key]["power"] = round(val, 2)
+
+            # 5. Convert back to list and sort
+            history_list = sorted(merged_data.values(), key=lambda x: x['time'])
             
-            return history
+            return history_list
 
         except Exception as e:
-            log.error(f"History Query Error: {e}")
-            # return empty list so API doesn't crash
+            # exc_info=True will print the FULL traceback in logs (Crucial for debugging)
+            log.error(f"History Query Error: {e}", exc_info=True)
             return []
 
     
