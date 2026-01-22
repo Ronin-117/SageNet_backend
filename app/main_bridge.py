@@ -19,6 +19,8 @@ def on_connect(client, userdata, flags, rc, properties=None):
         client.subscribe("evt/+/telem")
         # 2. Listen for Proxy Telemetry (Satellites via Gateway)
         client.subscribe("evt/+/proxy")
+        # 3. Listen for Discovery Messages (New Devices)
+        client.subscribe("evt/+/hive/discovery") 
     else:
         log.error(f"Connection Failed. RC: {rc}")
 
@@ -28,8 +30,16 @@ def on_message(client, userdata, msg):
         topic_parts = msg.topic.split('/')
         topic_id = topic_parts[1]
         msg_type = topic_parts[2] # 'telem' or 'proxy'
+
+        if len(topic_parts) > 3: msg_type = topic_parts[3] # 'hive/discovery'
         
         payload = json.loads(msg.payload.decode())
+
+        # --- CASE 0: ORPHAN DISCOVERY ---
+        if msg_type == "discovery":
+            # Payload: {"mac": "80:F3...", "rssi": -60, "type": "switch"}
+            firebase_svc.save_discovered_orphan(topic_id, payload)
+            return
 
         # --- STEP 1: IDENTIFY REAL DEVICE ---
         device_id = topic_id # Default to the sender (Gateway)

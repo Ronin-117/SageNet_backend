@@ -44,7 +44,9 @@ class FirebaseService:
                 'owner_id': user_uid,
                 'friendly_name': name,
                 'claimed_at': firestore.SERVER_TIMESTAMP,
-                'type': '4ch_switch' # Default type
+                'type': 'gateway',    # <--- Explicit
+                'is_gateway': True,   # <--- Explicit
+                'connected_satellites': [] # Init empty list
             }, merge=True) # merge=True prevents wiping existing stats
 
             # 2. Add to User's list (Optional, but good for fast lookups)
@@ -241,27 +243,84 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Analysis Save Error: {e}")
 
-    def register_satellite(self, mac_address: str, owner_id: str, gateway_id: str, name: str):
+    def save_discovered_orphan(self, gateway_id: str, orphan_data: dict):
+        """
+        Updates the Gateway's 'discovered_orphans' map.
+        UI listens to this field to show the "Scan" list.
+        """
         try:
-            self.db.collection('devices').document(mac_address).set({
+            mac = orphan_data.get('mac')
+            if not mac: return
+
+            # Structure: { "MAC_ADDR": { rssi: -60, type: "switch", last_seen: TIME } }
+            update_payload = {
+                f"discovered_orphans.{mac}": {
+                    "rssi": orphan_data.get('rssi'),
+                    "type": orphan_data.get('type', 'unknown'),
+                    "last_seen": firestore.SERVER_TIMESTAMP
+                }
+            }
+            
+            self.db.collection('devices').document(gateway_id).update(update_payload)
+            # log.info(f"Gateway {gateway_id} spotted {mac}") # Uncomment for verbose debug
+        except Exception as e:
+            # If doc doesn't exist yet, we might need to set it, but Gateway should exist by now
+            log.error(f"Orphan Save Error: {e}")
+
+    def register_satellite(self, mac_address: str, owner_id: str, gateway_id: str, name: str):
+        """
+        1. Creates Satellite Document.
+        2. Links to User.
+        3. Links to Gateway (Parent).
+        4. Removes from Gateway's 'discovered_orphans' list.
+        """
+        try:
+            batch = self.db.batch()
+
+            # A. Create Satellite Doc
+            sat_ref = self.db.collection('devices').document(mac_address)
+            sat_data = {
                 'owner_id': owner_id,
                 'friendly_name': name,
                 'type': 'satellite',
+                'is_gateway': False,        # <--- UI Filter Flag
                 'parent_gateway': gateway_id,
                 'created_at': firestore.SERVER_TIMESTAMP,
-                'live_state': [0, 0, 0, 0] # Initialize state
-            })
-            
-            # Link to User
-            self.db.collection('users').document(owner_id).update({
+                'live_state': [0, 0, 0, 0]
+            }
+            batch.set(sat_ref, sat_data)
+
+            # B. Link to User
+            user_ref = self.db.collection('users').document(owner_id)
+            batch.set(user_ref, {
                 'owned_devices': firestore.ArrayUnion([mac_address])
+            }, merge=True)
+
+            # C. Link to Gateway (Add to children, Remove from orphans)
+            gateway_ref = self.db.collection('devices').document(gateway_id)
+            batch.update(gateway_ref, {
+                'connected_satellites': firestore.ArrayUnion([mac_address]),
+                f'discovered_orphans.{mac_address}': firestore.DELETE_FIELD # Cleanup
             })
-            
-            log.info(f"Satellite {mac_address} registered to {owner_id}")
+
+            batch.commit()
+            log.info(f"Satellite {mac_address} fully adopted via {gateway_id}")
             return True
         except Exception as e:
             log.error(f"Satellite Reg Error: {e}")
             return False
+
+    def set_device_as_gateway(self, device_id: str):
+        """
+        Helper to ensure a device is marked as a Gateway when it connects directly.
+        Called by Bridge when 'telem' is received from a direct connection.
+        """
+        try:
+            self.db.collection('devices').document(device_id).set({
+                'type': 'gateway',
+                'is_gateway': True
+            }, merge=True)
+        except: pass
 
     def create_or_update_user_profile(self, uid: str, data: dict) -> bool:
         """
