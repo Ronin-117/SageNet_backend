@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from typing import List
+from typing import Optional
 
 # Import Core Components
 from app.dependencies import get_current_user, verify_ownership
@@ -52,22 +53,34 @@ def control_device(
 
 @router.get("/{device_id}/history", response_model=HistoryResponse)
 def get_device_history(
-    device_id: str, 
+    device_id: str,
+    minutes: int = 60,       # Default 1 hour
+    channel: Optional[int] = None, # Default None (Whole Board)
     uid: str = Depends(get_current_user)
 ):
     """
-    Fetch last 1 hour of voltage/power data for graphs.
+    Fetch history.
+    - minutes: 5, 30, 60, 720 (12h), 1440 (24h)
+    - channel: 0-3 (Relay specific) or leave empty for Total Board
     """
-    # 1. Security Check
     verify_ownership(device_id, uid)
 
-    # 2. Execute Logic (InfluxDB)
     try:
-        data = influx_svc.get_history(device_id)
+        data = influx_svc.get_history(device_id, minutes, channel)
         
-        # Convert raw dicts to Pydantic models for validation
-        formatted_data = [HistoryPoint(**point) for point in data]
-        
+        # Note: We reuse HistoryPoint but "voltage" might be missing if channel is selected.
+        # Pydantic might complain if voltage is missing. 
+        # Let's clean the data to ensure 0.0 defaults if missing.
+        cleaned_data = []
+        for d in data:
+            cleaned_data.append({
+                "time": d["time"],
+                "voltage": d.get("voltage", 0.0), # Default to 0 if relay view
+                "power": d.get("power", 0.0)
+            })
+
+        formatted_data = [HistoryPoint(**point) for point in cleaned_data]
+
         return HistoryResponse(
             device=device_id,
             count=len(formatted_data),

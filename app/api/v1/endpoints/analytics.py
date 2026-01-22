@@ -115,3 +115,14 @@ def trigger_shopping_agent(
         status="queued",
         message="Scraping started. Check results in Firestore/Notifications later."
     )
+
+@router.get("/network/live", response_model=dict)
+def get_network_live_status(uid: str = Depends(get_current_user)):
+    """
+    Returns total power of ALL devices owned by user right now.
+    """
+    total_watts = influx_svc.get_network_load(uid)
+    return {
+        "active_load_watts": total_watts,
+        "timestamp": datetime.utcnow()
+    }

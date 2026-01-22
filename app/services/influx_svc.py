@@ -61,22 +61,41 @@ class InfluxService:
             log.error(f"⚠️ Write Error for {device_id}: {e}")
             return False
 
-    def get_history(self, device_id: str, minutes: int = 60) -> List[Dict[str, Any]]:
+    def get_history(self, device_id: str, minutes: int = 60, channel: int = None) -> List[Dict[str, Any]]:
         """
-        Fetches history using the SIMPLE query from your old code.
+        Fetches history with dynamic time window and filtering.
+        - minutes: How far back to look.
+        - channel: If None -> Returns Total Power & Voltage. If 0-3 -> Returns specific channel power.
         """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # --- OLD WORKING QUERY ---
-            # No pivot. No complexity. Just raw voltage data.
+            # 1. Dynamic Aggregation (Don't return 10k points for a 24h graph)
+            # If requesting > 3 hours, average every 5 mins. 
+            # If > 24 hours, average every 1 hour.
+            aggregate = ""
+            if minutes > 1440: # > 1 Day
+                aggregate = '|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)'
+            elif minutes > 180: # > 3 Hours
+                aggregate = '|> aggregateWindow(every: 5m, fn: mean, createEmpty: false)'
+            
+            # 2. Field Selection
+            # If channel is None (Whole Board View), get Voltage and Total Power
+            # If channel is 0 (Relay View), get ONLY power_0
+            if channel is not None:
+                field_filter = f'r["_field"] == "power_{channel}"'
+            else:
+                field_filter = 'r["_field"] == "voltage" or r["_field"] == "total_power"'
+
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{minutes}m)
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
-              |> filter(fn: (r) => r["_field"] == "voltage")
-              |> limit(n: 20)
+              |> filter(fn: (r) => {field_filter})
+              {aggregate}
+              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+              |> sort(columns: ["_time"])
             '''
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
@@ -84,17 +103,27 @@ class InfluxService:
             history = []
             for table in result:
                 for record in table.records:
-                    history.append({
-                        "time": record.get_time().isoformat(),
-                        "voltage": record.get_value(),
-                        "power": 0.0  # Placeholder to satisfy Schema
-                    })
+                    entry = {"time": record.get_time().isoformat()}
+                    
+                    if channel is not None:
+                        # Relay View: Just Power
+                        # Note: Influx pivot puts the field name as the key
+                        key = f"power_{channel}"
+                        entry["power"] = record[key] if key in record else 0.0
+                    else:
+                        # Board View: Voltage + Total
+                        entry["voltage"] = record["voltage"] if "voltage" in record else 0.0
+                        entry["power"] = record["total_power"] if "total_power" in record else 0.0
+                    
+                    history.append(entry)
             
             return history
 
         except Exception as e:
-            log.error(f"⚠️ Query Error for {device_id}: {e}")
-            raise e
+            log.error(f"History Query Error: {e}")
+            # return empty list so API doesn't crash
+            return []
+
     
     def get_long_history(self, device_id: str, days: int) -> List[Dict[str, Any]]:
         """
@@ -156,6 +185,37 @@ class InfluxService:
         except Exception as e:
             log.error(f"Long History Error: {e}")
             raise e
+
+    def get_network_load(self, owner_uid: str) -> float:
+        """
+        Calculates the CURRENT total load (Watts) of ALL devices owned by the user.
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            # Logic: Get last 1 minute of data for ALL devices with this owner_id
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -1m)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
+              |> filter(fn: (r) => r["_field"] == "total_power")
+              |> last()
+              |> group()
+              |> sum() 
+            '''
+            # The 'sum()' at the end adds up the latest reading from every device group
+            
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            total_load = 0.0
+            for table in result:
+                for record in table.records:
+                    total_load = record.get_value() or 0.0
+            
+            return round(total_load, 2)
+        except Exception as e:
+            log.error(f"Network Load Error: {e}")
+            return 0.0
     
     def get_activity_patterns(self, device_id: str, days: int) -> Dict[str, List[Dict]]:
         """
