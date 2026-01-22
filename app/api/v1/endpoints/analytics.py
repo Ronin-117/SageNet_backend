@@ -5,6 +5,7 @@ from app.services.analytics_svc import analytics_svc
 from app.services.firebase_svc import firebase_svc
 from app.services.queue_svc import queue_svc
 from datetime import datetime, timedelta
+from app.services.influx_svc import influx_svc
 
 router = APIRouter()
 print("Analytics endpoint loaded")
