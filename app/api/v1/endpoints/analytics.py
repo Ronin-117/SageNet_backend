@@ -6,6 +6,9 @@ from app.services.firebase_svc import firebase_svc
 from app.services.queue_svc import queue_svc
 from datetime import datetime, timedelta
 from app.services.influx_svc import influx_svc
+import logging
+
+log = logging.getLogger("Analytics")
 
 router = APIRouter()
 print("Analytics endpoint loaded")
@@ -22,8 +25,10 @@ def get_live_bill(
     
     try:
         data = analytics_svc.calculate_bill(device_id)
+        log.info(f"Bill Calculation: {data}")
         return BillPrediction(**data)
     except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Calculation Error")
 
 @router.get("/{device_id}/insights", response_model=AnalyticsResponse)
@@ -34,16 +39,21 @@ def get_ai_insights(
     """
     Get Bill + Anomalies in one request.
     """
-    verify_ownership(device_id, uid)
-    
-    bill = analytics_svc.calculate_bill(device_id)
-    anomalies = analytics_svc.check_anomalies(device_id)
-    
-    return AnalyticsResponse(
-        device_id=device_id,
-        bill=bill,
-        recent_anomalies=anomalies
-    )
+    try:
+        verify_ownership(device_id, uid)
+        
+        bill = analytics_svc.calculate_bill(device_id)
+        anomalies = analytics_svc.check_anomalies(device_id)
+        log.info(f"Bill Calculation: {bill}")
+        log.info(f"Anomalies: {anomalies}")
+        return AnalyticsResponse(
+            device_id=device_id,
+            bill=bill,
+            recent_anomalies=anomalies
+        )
+    except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Calculation Error")
 
 @router.post("/{device_id}/train", response_model=AIStatusResponse)
 def trigger_training(
@@ -54,25 +64,29 @@ def trigger_training(
     """
     Start the Learning Phase for a specific appliance (Channel).
     """
-    verify_ownership(device_id, uid)
+    try:
+        verify_ownership(device_id, uid)
+        
+        # Calculate end time
+        end_time = datetime.utcnow() + timedelta(hours=payload.duration_hours)
     
-    # Calculate end time
-    end_time = datetime.utcnow() + timedelta(hours=payload.duration_hours)
-    
-    # Update DB to "learning"
-    success = firebase_svc.update_ai_status(
-        device_id=device_id,
-        channel=payload.channel_index,
-        status="learning",
-        training_end=end_time
-    )
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update AI config")
+        # Update DB to "learning"
+        success = firebase_svc.update_ai_status(
+            device_id=device_id,
+            channel=payload.channel_index,
+            status="learning",
+            training_end=end_time
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update AI config")
 
-    # Return updated status (Mocking the fetch for speed)
-    # In real app, you might re-fetch the full config
-    return get_ai_status(device_id, uid)
+        # Return updated status (Mocking the fetch for speed)
+        # In real app, you might re-fetch the full config
+        return get_ai_status(device_id, uid)
+    except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Calculation Error")
 
 @router.get("/{device_id}/ai/status", response_model=AIStatusResponse)
 def get_ai_status(
@@ -82,18 +96,22 @@ def get_ai_status(
     """
     Check if devices are Learning, Training, or Monitoring.
     """
-    verify_ownership(device_id, uid)
-    
-    data = firebase_svc.get_device_full(device_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Device not found")
+    try:
+        verify_ownership(device_id, uid)
         
-    ai_config = data.get("ai_config", {})
-    
-    return AIStatusResponse(
-        device_id=device_id,
-        channels=ai_config
-    )
+        data = firebase_svc.get_device_full(device_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        ai_config = data.get("ai_config", {})
+        
+        return AIStatusResponse(
+            device_id=device_id,
+            channels=ai_config
+        )
+    except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Calculation Error")
 
 @router.post("/shop", response_model=ShopResponse)
 def trigger_shopping_agent(
@@ -105,25 +123,49 @@ def trigger_shopping_agent(
     """
     # FIX: Removed verify_ownership("global", uid) 
     # because Shopping is a User feature, not linked to a specific ESP32.
-    
-    job_id = queue_svc.push_scraper_job(payload.query, payload.budget, uid)
-    
-    if not job_id:
-        raise HTTPException(status_code=500, detail="Failed to queue job. Redis unavailable.")
+    try:
+        job_id = queue_svc.push_scraper_job(payload.query, payload.budget, uid)
+        
+        if not job_id:
+            raise HTTPException(status_code=500, detail="Failed to queue job. Redis unavailable.")
 
-    return ShopResponse(
-        job_id=job_id,
-        status="queued",
-        message="Scraping started. Check results in Firestore/Notifications later."
-    )
+        return ShopResponse(
+            job_id=job_id,
+            status="queued",
+            message="Scraping started. Check results in Firestore/Notifications later."
+        )
+    except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Calculation Error")
 
 @router.get("/network/live", response_model=dict)
 def get_network_live_status(uid: str = Depends(get_current_user)):
     """
     Returns total power of ALL devices owned by user right now.
     """
-    total_watts = influx_svc.get_network_load(uid)
-    return {
-        "active_load_watts": total_watts,
-        "timestamp": datetime.utcnow()
-    }
+    try:
+        total_watts = influx_svc.get_network_load(uid)
+        log.info(f"Network Load: {total_watts}")
+        return {
+            "active_load_watts": total_watts,
+            "timestamp": datetime.utcnow()
+        }
+    except Exception as e:
+        log.error(f"Bill Calculation Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Calculation Error")
+
+@router.get("/network/history", response_model=List[dict])
+def get_network_history(
+    minutes: int = 60, 
+    uid: str = Depends(get_current_user)
+):
+    """
+    Get historical aggregate power usage for the entire account.
+    """
+    try:
+        data = influx_svc.get_network_history(uid, minutes)
+        log.info(f"Network History: Found {len(data)} points for user {uid}")
+        return data
+    except Exception as e:
+        log.error(f"Network History Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch network history")

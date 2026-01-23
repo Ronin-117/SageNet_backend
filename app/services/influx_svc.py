@@ -217,6 +217,59 @@ class InfluxService:
         except Exception as e:
             log.error(f"Network Load Error: {e}")
             return 0.0
+
+    def get_network_history(self, owner_uid: str, minutes: int = 60) -> List[Dict[str, Any]]:
+        """
+        Aggregates TOTAL power of ALL devices owned by the user over time.
+        """
+        try:
+            bucket = settings.INFLUX_BUCKET
+            
+            # 1. Determine Window Size
+            # We align all devices to these windows so we can sum them up accurately
+            if minutes > 1440: # > 1 Day
+                every = "1h"
+            elif minutes > 180: # > 3 Hours
+                every = "5m"
+            else:
+                every = "1m" # High res for short duration
+
+            # 2. Flux Query
+            # - Filter by Owner
+            # - Align every device to the 'every' window (mean)
+            # - Group by Time (squashing device_ids together)
+            # - Sum the values
+            query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -{minutes}m)
+              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+              |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
+              |> filter(fn: (r) => r["_field"] == "total_power")
+              |> aggregateWindow(every: {every}, fn: mean, createEmpty: false)
+              |> group(columns: ["_time"])
+              |> sum()
+              |> sort(columns: ["_time"])
+            '''
+            
+            result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
+            
+            history = []
+            for table in result:
+                for record in table.records:
+                    # Clean Time (Add Z for frontend timezone fix)
+                    dt = record.get_time()
+                    time_str = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    
+                    history.append({
+                        "time": time_str,
+                        "active_load_watts": round(record.get_value() or 0.0, 2)
+                    })
+            
+            return history
+
+        except Exception as e:
+            log.error(f"Network History Query Error: {e}", exc_info=True)
+            return []
     
     def get_activity_patterns(self, device_id: str, days: int) -> Dict[str, List[Dict]]:
         """
