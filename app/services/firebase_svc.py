@@ -436,4 +436,6 @@ class FirebaseService:
             log.error(f"Sync Devices Error: {e}")
             return -1
 
+    
+
 firebase_svc = FirebaseService()

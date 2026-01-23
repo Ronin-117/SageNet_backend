@@ -165,19 +165,40 @@ def job_calculate_bills():
             user_data = doc.to_dict()
             uid = doc.id
             
-            # 1. Config
-            location = user_data.get('location', {'country': 'IN', 'state': 'KL'})
-            bill_config = user_data.get('billing_config', {'phase': '1', 'type': 'domestic'})
+            # 1. Config (Safely get nested dicts)
+            location = user_data.get('location', {})
+            # Default to Kerala/India if missing
+            country_code = location.get('country', 'IN')
+            state_code = location.get('state', 'KL')
+
+            bill_config = user_data.get('billing_config', {})
             
-            # 2. Get Data
+            # --- FIX 1: DYNAMIC BILLING CYCLE ---
+            # Get the user's specific start day (default to 1st)
+            start_day = int(bill_config.get('cycle_start_day', 1))
+            today = datetime.now()
+            
+            # Calculate days passed in THIS cycle
+            if today.day >= start_day:
+                # Same month (e.g. Start 5th, Today 23rd -> 18 days)
+                days_passed = today.day - start_day
+            else:
+                # Overlap from prev month (e.g. Start 20th, Today 5th -> ~15 days)
+                # Approximation: 30 days in prev month
+                days_passed = 30 - start_day + today.day
+            
+            # Ensure at least 1 day of data is looked at
+            if days_passed < 1: days_passed = 1
+
+            # 2. Get Data (Last 60 days history)
             history = influx_svc.get_user_daily_usage(uid, days=60)
             
             if not history:
                 continue
 
-            # 3. Filter for Current Bill
-            current_day_of_month = datetime.now().day
-            slice_idx = -current_day_of_month if len(history) >= current_day_of_month else 0
+            # 3. Filter for Current Bill Cycle
+            # Slice the history based on calculated days_passed
+            slice_idx = -days_passed if len(history) >= days_passed else 0
             current_cycle_usage = history[slice_idx:] 
             
             # Sum up (Convert to standard float immediately)
@@ -189,26 +210,35 @@ def job_calculate_bills():
             
             # 5. Calculate Price
             bill_real_now = float(tariff_mgr.calculate_bill(
-                location['country'], location['state'], current_month_kwh, bill_config
+                country_code, state_code, current_month_kwh, bill_config
             ))
             bill_predicted = float(tariff_mgr.calculate_bill(
-                location['country'], location['state'], predicted_total_kwh, bill_config
+                country_code, state_code, predicted_total_kwh, bill_config
             ))
 
-            # 6. Save (Now using clean Python floats)
+            # --- FIX 2: BUDGET GOAL ---
+            # Get budget from config (Default 3000)
+            budget_goal = float(bill_config.get('monthly_budget', 3000.0))
+
+            # 6. Save (Now includes budget_goal for Frontend)
             firebase_svc.db.collection('billing_reports').document(uid).set({
                 'currency': 'INR',
                 'current_kwh': round(current_month_kwh, 2),
                 'predicted_kwh': round(predicted_total_kwh, 2),
                 'current_bill': round(bill_real_now, 2),
                 'predicted_bill': round(bill_predicted, 2),
+                
+                # Critical for the "Budget Bar" in UI
+                'budget_goal': round(budget_goal, 2),
+                
                 'last_updated': firestore.SERVER_TIMESTAMP
             }, merge=True)
             
-            log.info(f"User {uid}: Used {current_month_kwh:.2f} kWh (₹{bill_real_now:.2f}) -> Forecast ₹{bill_predicted:.2f}")
+            log.info(f"User {uid}: Used {current_month_kwh:.2f} kWh (₹{bill_real_now:.2f}) -> Budget: {budget_goal}")
 
     except Exception as e:
-        log.error(f"Billing Job Error: {e}")
+        # exc_info=True helps debug crashes
+        log.error(f"Billing Job Error: {e}", exc_info=True)
 
 # --- MAIN LOOP ---
 if __name__ == "__main__":
@@ -224,4 +254,3 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(10)
-        

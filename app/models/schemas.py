@@ -104,6 +104,7 @@ class BillingConfig(BaseModel):
     cycle_start_day: int = Field(1, ge=1, le=28, description="Day of month bill resets")
     phase: PhaseType = Field(PhaseType.SINGLE, description="Connection Phase")
     type: TariffType = Field(TariffType.DOMESTIC, description="Tariff Category")
+    monthly_budget: float = Field(3000.0, description="Target budget in INR")
 
 # Request Model: Registration (Strict - All fields required)
 class UserRegisterRequest(BaseModel):
