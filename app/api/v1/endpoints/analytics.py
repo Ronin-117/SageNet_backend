@@ -7,6 +7,7 @@ from app.services.queue_svc import queue_svc
 from datetime import datetime, timedelta
 from app.services.influx_svc import influx_svc
 import logging
+from typing import List
 
 log = logging.getLogger("Analytics")
 
