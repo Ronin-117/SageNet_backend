@@ -144,7 +144,7 @@ class FirebaseService:
             log.error(f"Token Reg Error: {e}")
             return False
 
-    def send_alert(self, device_id: str, title: str, body: str):
+    def send_alert(self, device_id: str, title: str, body: str, channel: int):
         """
         Sends a Push Notification using the modern 'send_each_for_multicast' API.
         """
@@ -184,7 +184,7 @@ class FirebaseService:
                 data={
                     "device_id": device_id,
                     "screen": "analytics", # Routing hint for App
-                    "channel": "0" 
+                    "channel": str(channel), 
                 }, 
                 tokens=tokens
             )
@@ -222,6 +222,7 @@ class FirebaseService:
                 "title": alert_data.get("title", "System Alert"),
                 "body": alert_data.get("body", ""),
                 "device_id": alert_data.get("device_id"),
+                "channel": alert_data.get("channel"),
                 "severity": alert_data.get("severity", "warning"), # 'warning' or 'critical'
                 "timestamp": firestore.SERVER_TIMESTAMP,
                 "expires_at": expires_at, # For TTL cleanup

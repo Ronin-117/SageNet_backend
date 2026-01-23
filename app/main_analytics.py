@@ -129,6 +129,7 @@ def job_anomaly_lifecycle():
                                                 "title": "⚠️ Unusual Power Detected",
                                                 "body": f"Channel {channel} spiked to {actual:.1f}W (Expected {pred:.1f}W)",
                                                 "device_id": device_id,
+                                                "channel": channel, 
                                                 "severity": "critical"
                                             }
 
@@ -136,7 +137,7 @@ def job_anomaly_lifecycle():
                                             firebase_svc.save_alert(owner_id, alert_payload)
 
                                             # 4. Send Push Notification (Existing logic)
-                                            firebase_svc.send_alert(device_id, alert_payload["title"], alert_payload["body"])
+                                            firebase_svc.send_alert(device_id, alert_payload["title"], alert_payload["body"],channel )
                                         else:
                                             log.warning(f"Anomaly detected for {device_id} but no owner_id found.")
                             else:
