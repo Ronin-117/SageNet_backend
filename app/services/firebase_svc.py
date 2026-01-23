@@ -477,4 +477,23 @@ class FirebaseService:
         except Exception as e:
             log.error(f"User Notification Failed: {e}", exc_info=True)
 
+    def create_initial_search_job(self, job_id: str, uid: str, query: str, budget: float):
+        """
+        Creates the placeholder document immediately so it appears in the User's history.
+        """
+        try:
+            self.db.collection('searches').document(job_id).set({
+                'uid': uid,                # <--- The Field the App is looking for
+                'query': query,
+                'budget': budget,
+                'status': 'queued',
+                'created_at': firestore.SERVER_TIMESTAMP, # <--- Needed for Ordering
+                'raw_products': []
+            })
+            log.info(f"Created initial search job {job_id} for user {uid}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to create search job: {e}")
+            return False
+
 firebase_svc = FirebaseService()

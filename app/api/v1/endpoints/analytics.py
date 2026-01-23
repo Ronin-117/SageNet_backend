@@ -122,18 +122,26 @@ def trigger_shopping_agent(
     """
     Triggers the RAG Pipeline.
     """
-    # FIX: Removed verify_ownership("global", uid) 
-    # because Shopping is a User feature, not linked to a specific ESP32.
     try:
+        # 1. Push to Redis
         job_id = queue_svc.push_scraper_job(payload.query, payload.budget, uid)
-        
+
         if not job_id:
             raise HTTPException(status_code=500, detail="Failed to queue job. Redis unavailable.")
 
+        # 2. Create Firestore Document IMMEDIATELY (The Fix)
+        # This ensures 'uid' and 'created_at' exist for the App's query
+        firebase_svc.create_initial_search_job(
+            job_id=job_id,
+            uid=uid,
+            query=payload.query,
+            budget=payload.budget
+        )
+        log.info(f"Shopping Job {job_id} Queued for User {uid}")
         return ShopResponse(
             job_id=job_id,
             status="queued",
-            message="Scraping started. Check results in Firestore/Notifications later."
+            message="Scraping started."
         )
     except Exception as e:
         log.error(f"Bill Calculation Error: {e}", exc_info=True)
