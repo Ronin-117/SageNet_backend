@@ -262,29 +262,39 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Firestore Save Error: {e}")
 
+    def update_job_status(self, job_id: str, status: str):
+        """Generic helper to move the progress bar in the UI."""
+        try:
+            self.db.collection('searches').document(job_id).update({
+                'status': status,
+                'last_updated': firestore.SERVER_TIMESTAMP
+            })
+        except Exception as e:
+            log.error(f"Status Update Error [{job_id}]: {e}")
+
     def append_search_result(self, job_id: str, product: dict):
         """
-        Adds a single product to the 'raw_products' array in Firestore.
-        Uses arrayUnion to append without overwriting.
+        Adds a single product to the array. 
+        FIXED: Removed 'status': 'processing' to prevent progress bar jumping.
         """
         try:
             self.db.collection('searches').document(job_id).set({
-                'status': 'processing',
                 'raw_products': firestore.ArrayUnion([product]),
                 'last_updated': firestore.SERVER_TIMESTAMP
             }, merge=True)
-            log.info(f"Appended 1 item to Job {job_id}")
         except Exception as e:
             log.error(f"Firestore Append Error: {e}")
-            
+
     def mark_search_complete(self, job_id: str, count: int):
+        """Finalizes the scraping phase."""
         try:
             self.db.collection('searches').document(job_id).update({
-                'status': 'scraped',
+                'status': 'scraped', # Now at 70% progress
                 'total_items': count,
                 'completed_at': firestore.SERVER_TIMESTAMP
             })
-        except: pass
+        except Exception as e:
+            log.error(f"Mark Complete Error: {e}")
     
     def save_analysis(self, job_id: str, analysis: dict):
         try:
