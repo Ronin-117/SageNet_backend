@@ -101,7 +101,7 @@ class InfluxService:
                     # FIX: Strip microseconds to ensure Voltage & Power align
                     dt = record.get_time()
                     # Use standard format YYYY-MM-DDTHH:MM:SS (No micros)
-                    time_key = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                    time_key = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
                     
                     if time_key not in merged_data:
                         merged_data[time_key] = {"time": time_key, "voltage": 0.0, "power": 0.0}
