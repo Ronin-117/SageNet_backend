@@ -189,14 +189,15 @@ class InfluxService:
 
     def get_network_load(self, owner_uid: str) -> float:
         """
-        Calculates the CURRENT total load (Watts) of ALL devices owned by the user.
+        Calculates total load. Widened range to -10m to prevent 0W dropouts.
         """
         try:
             bucket = settings.INFLUX_BUCKET
-            # Logic: Get last 1 minute of data for ALL devices with this owner_id
+            # FIX: Changed -1m to -10m. 
+            # We want the "Latest" value, even if it's 2 minutes old.
             query = f'''
             from(bucket: "{bucket}")
-              |> range(start: -1m)
+              |> range(start: -10m)
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["owner_id"] == "{owner_uid}")
               |> filter(fn: (r) => r["_field"] == "total_power")
@@ -204,41 +205,43 @@ class InfluxService:
               |> group()
               |> sum() 
             '''
-            # The 'sum()' at the end adds up the latest reading from every device group
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
             total_load = 0.0
+            found = False
             for table in result:
                 for record in table.records:
                     total_load = record.get_value() or 0.0
+                    found = True
             
+            # Debug Log to confirm we found the user's data
+            if found:
+                log.info(f"Network Load for {owner_uid}: {total_load} W")
+            else:
+                log.warning(f"Network Load for {owner_uid}: 0W (No data in last 10m)")
+                
             return round(total_load, 2)
         except Exception as e:
             log.error(f"Network Load Error: {e}")
             return 0.0
 
     def get_network_history(self, owner_uid: str, minutes: int = 60) -> List[Dict[str, Any]]:
-        """
-        Aggregates TOTAL power of ALL devices owned by the user over time.
-        """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # 1. Determine Window Size
-            # We align all devices to these windows so we can sum them up accurately
-            if minutes > 1440: # > 1 Day
+            if minutes > 1440: 
                 every = "1h"
-            elif minutes > 180: # > 3 Hours
+            elif minutes > 180: 
                 every = "5m"
             else:
-                every = "1m" # High res for short duration
+                every = "1m"
 
-            # 2. Flux Query
-            # - Filter by Owner
-            # - Align every device to the 'every' window (mean)
-            # - Group by Time (squashing device_ids together)
-            # - Sum the values
+            # Query breakdown:
+            # 1. Filter by Owner
+            # 2. align all devices to same time grid (aggregateWindow)
+            # 3. group by Time (merges all devices into one table per timestamp)
+            # 4. sum the values in that table
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{minutes}m)
@@ -256,8 +259,8 @@ class InfluxService:
             history = []
             for table in result:
                 for record in table.records:
-                    # Clean Time (Add Z for frontend timezone fix)
                     dt = record.get_time()
+                    # FIX: Add 'Z' for Frontend Timezone Parsing
                     time_str = dt.strftime('%Y-%m-%dT%H:%M:%SZ')
                     
                     history.append({
@@ -265,6 +268,7 @@ class InfluxService:
                         "active_load_watts": round(record.get_value() or 0.0, 2)
                     })
             
+            log.info(f"Network History: {len(history)} points for {owner_uid}")
             return history
 
         except Exception as e:
