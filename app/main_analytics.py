@@ -153,6 +153,7 @@ def job_anomaly_lifecycle():
 
     except Exception as e:
         log.error(f"CRITICAL LOOP FAILURE: {e}")
+        
 
 def job_calculate_bills():
     log.info("💰 Starting Hourly Billing Calculation...")
