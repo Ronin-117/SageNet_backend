@@ -436,6 +436,45 @@ class FirebaseService:
             log.error(f"Sync Devices Error: {e}")
             return -1
 
-    
+    def send_user_notification(self, user_uid: str, title: str, body: str, data: dict = None):
+        """
+        Sends a Push Notification to a specific User (all their logged-in devices).
+        Used for async jobs like Shopping Results.
+        """
+        try:
+            # 1. Get User's Tokens
+            user_doc = self.db.collection('users').document(user_uid).get()
+            if not user_doc.exists:
+                log.warning(f"User {user_uid} not found for notification.")
+                return
+
+            tokens = user_doc.to_dict().get('fcm_tokens', [])
+            if not tokens:
+                log.info(f"No FCM tokens for user {user_uid}. Skipping alert.")
+                return
+
+            # 2. Prepare Payload
+            payload_data = data if data else {}
+            
+            # 3. Construct Message
+            message = messaging.MulticastMessage(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body
+                ),
+                data=payload_data, # Metadata for App routing
+                tokens=tokens
+            )
+
+            # 4. Send
+            try:
+                response = messaging.send_each_for_multicast(message)
+                log.info(f"Sent user alert to {response.success_count} devices.")
+            except AttributeError:
+                response = messaging.send_multicast(message) # Fallback
+                log.info(f"Sent user alert (Legacy) to {response.success_count} devices.")
+
+        except Exception as e:
+            log.error(f"User Notification Failed: {e}", exc_info=True)
 
 firebase_svc = FirebaseService()

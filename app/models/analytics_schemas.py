@@ -45,6 +45,7 @@ class AIStatusResponse(BaseModel):
 class ShopRequest(BaseModel):
     query: str = Field(..., min_length=3, description="Product name (e.g., 'BLDC Fan')")
     budget: float = Field(..., gt=0, description="Max price in INR")
+    current_device_specs: Optional[str] = Field(None, description="Specs of current device to compare against")
 
 class ShopResponse(BaseModel):
     job_id: str
