@@ -38,6 +38,23 @@ def register_fcm_token(
 
     return {"status": "registered"}
 
+@router.delete("/fcm", status_code=status.HTTP_200_OK)
+def unregister_fcm_token(
+    payload: TokenRequest, # Re-using the same schema { token: str }
+    uid: str = Depends(get_current_user)
+):
+    """
+    Call this on LOGOUT. Removes the token so the device stops receiving alerts 
+    for this account.
+    """
+    success = firebase_svc.remove_fcm_token(uid, payload.token)
+    
+    if not success:
+        # Non-critical error, but good to report
+        log.warning(f"Failed to unregister token for {uid}")
+    
+    return {"status": "unregistered"}
+
 # ==========================================
 # 2. USER REGISTRATION (Profile Setup)
 # ==========================================

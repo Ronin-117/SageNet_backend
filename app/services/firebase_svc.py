@@ -198,6 +198,50 @@ class FirebaseService:
         except Exception as e:
             log.error(f"Notification Failed: {e}")
 
+    def save_alert(self, user_uid: str, alert_data: dict):
+        """
+        Saves an anomaly event to the user's history.
+        Includes an 'expires_at' field for 3-month retention policies.
+        """
+        try:
+            # 1. Calculate Expiration (90 Days from now)
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(days=90)
+
+            # 2. Prepare Data
+            doc_data = {
+                "title": alert_data.get("title", "System Alert"),
+                "body": alert_data.get("body", ""),
+                "device_id": alert_data.get("device_id"),
+                "severity": alert_data.get("severity", "warning"), # 'warning' or 'critical'
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "expires_at": expires_at, # For TTL cleanup
+                "read": False
+            }
+
+            # 3. Write to Sub-collection: users/{uid}/alerts/{auto_id}
+            self.db.collection('users').document(user_uid).collection('alerts').add(doc_data)
+            
+            log.info(f"Alert saved for User {user_uid}: {alert_data.get('title')}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to save alert: {e}")
+            return False
+
+    def remove_fcm_token(self, user_uid: str, token: str):
+        """
+        Removes a specific FCM token on logout.
+        """
+        try:
+            self.db.collection('users').document(user_uid).update({
+                'fcm_tokens': firestore.ArrayRemove([token])
+            })
+            log.info(f"FCM Token removed for {user_uid}")
+            return True
+        except Exception as e:
+            log.error(f"Token Removal Error: {e}")
+            return False
+
     def save_search_results(self, job_id: str, results: list):
         try:
             self.db.collection('searches').document(job_id).set({

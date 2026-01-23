@@ -120,7 +120,25 @@ def job_anomaly_lifecycle():
 
                                     if is_anomaly:
                                         log.critical(f"⚠️ ANOMALY [{device_id} Ch{channel}] Err: {error:.2f} > {thresh:.2f}")
-                                        firebase_svc.send_alert(device_id, "⚠️ Energy Anomaly", f"Check Channel {channel}")
+                                        # 1. Get Owner ID (Required to save to correct user)
+                                        owner_id = dev_data.get('owner_id')
+                                        
+                                        if owner_id:
+                                            # 2. Construct Alert Data
+                                            alert_payload = {
+                                                "title": "⚠️ Unusual Power Detected",
+                                                "body": f"Channel {channel} spiked to {actual:.1f}W (Expected {pred:.1f}W)",
+                                                "device_id": device_id,
+                                                "severity": "critical"
+                                            }
+
+                                            # 3. Save to History (The 3-month log)
+                                            firebase_svc.save_alert(owner_id, alert_payload)
+
+                                            # 4. Send Push Notification (Existing logic)
+                                            firebase_svc.send_alert(device_id, alert_payload["title"], alert_payload["body"])
+                                        else:
+                                            log.warning(f"Anomaly detected for {device_id} but no owner_id found.")
                             else:
                                 # Device is OFF. Silence.
                                 pass
