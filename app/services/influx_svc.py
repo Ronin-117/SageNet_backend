@@ -62,31 +62,25 @@ class InfluxService:
             return False
 
     def get_history(self, device_id: str, minutes: int = 60, channel: int = None) -> List[Dict[str, Any]]:
-        """
-        Fetches history and merges fields using Python (Safer than Flux Pivot).
-        """
         try:
             bucket = settings.INFLUX_BUCKET
             
-            # 1. Dynamic Aggregation
-            # If looking back > 3 hours, average data to prevent sending 10k points
+            # 1. Aggregation Logic
             aggregate = ""
-            if minutes > 1440: # > 1 Day
+            if minutes > 1440: 
                 aggregate = '|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)'
-            elif minutes > 180: # > 3 Hours
+            elif minutes > 180: 
                 aggregate = '|> aggregateWindow(every: 5m, fn: mean, createEmpty: false)'
             
-            # 2. Field Filter
+            # 2. Field Selection
             if channel is not None:
-                # Relay View: We only care about that specific channel's power
                 field_filter = f'r["_field"] == "power_{channel}"'
                 target_power_field = f"power_{channel}"
             else:
-                # Board View: We want Voltage and Total Power
                 field_filter = 'r["_field"] == "voltage" or r["_field"] == "total_power"'
                 target_power_field = "total_power"
 
-            # 3. Query (NO PIVOT)
+            # 3. Query
             query = f'''
             from(bucket: "{bucket}")
               |> range(start: -{minutes}m)
@@ -99,15 +93,15 @@ class InfluxService:
             
             result = self.query_api.query(org=settings.INFLUX_ORG, query=query)
             
-            # 4. Python-Side Merging (The Fix)
-            # We use a dictionary keyed by Timestamp to merge rows manually
+            # 4. ROBUST MERGING (The Fix)
             merged_data = {}
 
             for table in result:
                 for record in table.records:
-                    # Round time to nearest second to ensure Voltage/Power align
-                    # (InfluxDB sometimes has microsecond offsets)
-                    time_key = record.get_time().isoformat()
+                    # FIX: Strip microseconds to ensure Voltage & Power align
+                    dt = record.get_time()
+                    # Use standard format YYYY-MM-DDTHH:MM:SS (No micros)
+                    time_key = dt.strftime('%Y-%m-%dT%H:%M:%S')
                     
                     if time_key not in merged_data:
                         merged_data[time_key] = {"time": time_key, "voltage": 0.0, "power": 0.0}
@@ -115,22 +109,22 @@ class InfluxService:
                     field = record.get_field()
                     val = record.get_value() or 0.0
 
-                    # Map fields to standard output
                     if field == "voltage":
                         merged_data[time_key]["voltage"] = round(val, 1)
                     elif field == target_power_field:
                         merged_data[time_key]["power"] = round(val, 2)
 
-            # 5. Convert back to list and sort
+            # 5. Sort by time
             history_list = sorted(merged_data.values(), key=lambda x: x['time'])
+            
+            # Debug Log to verify data flow
+            log.info(f"API History: Found {len(history_list)} points for {device_id} (Last: {history_list[-1] if history_list else 'None'})")
             
             return history_list
 
         except Exception as e:
-            # exc_info=True will print the FULL traceback in logs (Crucial for debugging)
             log.error(f"History Query Error: {e}", exc_info=True)
             return []
-
     
     def get_long_history(self, device_id: str, days: int) -> List[Dict[str, Any]]:
         """
