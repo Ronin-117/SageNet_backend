@@ -2,7 +2,7 @@ fastapi
 uvicorn
 paho-mqtt
 influxdb-client
-firebase-admin
+firebase-admin>=6.2.0
 python-dotenv
 pydantic-settings
 redis
