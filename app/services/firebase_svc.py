@@ -217,6 +217,8 @@ class FirebaseService:
             now = datetime.now(timezone.utc)
             expires_at = now + timedelta(days=90)
 
+            log.info(f"DEBUG: Processing alert for user {user_uid}. Payload channel: {alert_data.get('channel')}")
+
             # 2. Prepare Data
             doc_data = {
                 "title": alert_data.get("title", "System Alert"),
