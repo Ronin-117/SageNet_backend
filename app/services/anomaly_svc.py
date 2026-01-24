@@ -115,22 +115,27 @@ class AnomalyService:
 
     def detect(self, device_id: str, channel: int, recent_data: list):
         """
-        Loads model, runs inference, returns (is_anomaly, error, threshold).
+        Loads model, runs inference, returns (is_anomaly, error, threshold, pred, actual).
         """
         seq_len = settings.ANOMALY_SEQUENCE_LENGTH
         
+        # --- FIX 1: ALWAYS CAPTURE THE ACTUAL POWER ---
+        # Even if AI fails, we want the logs to show the real current wattage.
+        # recent_data[-1] is the most recent reading from InfluxDB.
+        actual_wattage = float(recent_data[-1]) if recent_data else 0.0
+
         # CHECK 1: Not enough data
         if len(recent_data) < (seq_len + 1):
-            # MUST RETURN 3 VALUES
-            return False, 0.0, 0.0
+            # Return 5 values. 'actual' is real wattage, 'pred' is 0.
+            return False, 0.0, 0.0, 0.0, actual_wattage
 
         model_path = self._get_model_path(device_id, channel)
         thresh_path = self._get_thresh_path(device_id, channel)
 
-        # CHECK 2: Model missing
+        # CHECK 2: Model missing (Device hasn't finished training yet)
         if not os.path.exists(model_path) or not os.path.exists(thresh_path):
-            # MUST RETURN 3 VALUES
-            return False, 0.0, 0.0
+            # Return 5 values. 'actual' is real wattage, 'pred' is 0.
+            return False, 0.0, 0.0, 0.0, actual_wattage
 
         try:
             # 1. Load Threshold
@@ -158,12 +163,12 @@ class AnomalyService:
             del model
             gc.collect()
 
-            # SUCCESS RETURN (3 Values)
+            # SUCCESS: Return all 5 calculated values
             return is_anomaly, error, threshold, float(pred), float(target)
 
         except Exception as e:
-            log.error(f"Inference failed: {e}")
-            # ERROR RETURN (MUST BE 3 VALUES)
-            return False, 0.0, 0.0, 0.0, 0.0
+            log.error(f"Inference failed for {device_id} Ch {channel}: {e}")
+            # ERROR: Return 5 values so the main loop doesn't crash
+            return False, 0.0, 0.0, 0.0, actual_wattage
 
 anomaly_svc = AnomalyService()
