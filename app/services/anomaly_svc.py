@@ -115,42 +115,42 @@ class AnomalyService:
 
     def detect(self, device_id: str, channel: int, recent_data: list):
         """
-        Loads model, runs inference, returns (is_anomaly, error, threshold, pred, actual).
+        Loads model, runs inference, returns (is_anomaly, error, threshold).
         """
         seq_len = settings.ANOMALY_SEQUENCE_LENGTH
-
+        
         # CHECK 1: Not enough data
         if len(recent_data) < (seq_len + 1):
-            # FIX: Must return 5 values, not 3
-            return False, 0.0, 0.0, 0.0, 0.0
+            # MUST RETURN 3 VALUES
+            return False, 0.0, 0.0
 
         model_path = self._get_model_path(device_id, channel)
         thresh_path = self._get_thresh_path(device_id, channel)
 
         # CHECK 2: Model missing
         if not os.path.exists(model_path) or not os.path.exists(thresh_path):
-            # FIX: Must return 5 values, not 3
-            return False, 0.0, 0.0, 0.0, 0.0
+            # MUST RETURN 3 VALUES
+            return False, 0.0, 0.0
 
         try:
             # 1. Load Threshold
             with open(thresh_path, "r") as f:
                 threshold = float(f.read().strip())
 
-            # 2. Load Model
+            # 2. Load Model (Lazy Load)
             model = TransformerForecaster()
             model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
             model.eval()
 
             # 3. Inference
-            input_seq = recent_data[-(seq_len+1):-1]
-            target = recent_data[-1]
-
+            input_seq = recent_data[-(seq_len+1):-1] 
+            target = recent_data[-1]                 
+            
             inp_tensor = torch.tensor(input_seq, dtype=torch.float32).view(1, seq_len, 1)
-
+            
             with torch.no_grad():
                 pred = model(inp_tensor).item()
-
+            
             error = abs(pred - target)
             is_anomaly = error > threshold
 
@@ -158,12 +158,12 @@ class AnomalyService:
             del model
             gc.collect()
 
-            # SUCCESS RETURN (Exactly 5 values)
+            # SUCCESS RETURN (3 Values)
             return is_anomaly, error, threshold, float(pred), float(target)
 
         except Exception as e:
             log.error(f"Inference failed: {e}")
-            # ERROR RETURN (Exactly 5 values)
+            # ERROR RETURN (MUST BE 3 VALUES)
             return False, 0.0, 0.0, 0.0, 0.0
 
 anomaly_svc = AnomalyService()
