@@ -509,4 +509,38 @@ class FirebaseService:
             log.error(f"Failed to create search job: {e}")
             return False
 
+    def unlink_device(self, user_uid: str, device_id: str) -> bool:
+        """
+        Atomically removes a device from a user's account and resets the device ownership.
+        """
+        try:
+            batch = self.db.batch()
+
+            # 1. Reference the User document
+            user_ref = self.db.collection('users').document(user_uid)
+            # Remove the ID from the array
+            batch.update(user_ref, {
+                'owned_devices': firestore.ArrayRemove([device_id])
+            })
+
+            # 2. Reference the Device document
+            device_ref = self.db.collection('devices').document(device_id)
+            # Reset ownership fields
+            batch.update(device_ref, {
+                'owner_id': None,
+                'friendly_name': "Unclaimed Device",
+                'is_gateway': False,
+                'unlinked_at': firestore.SERVER_TIMESTAMP
+            })
+
+            # 3. Commit the atomic operation
+            batch.commit()
+            
+            log.info(f"✅ Device {device_id} successfully unlinked from User {user_uid}")
+            return True
+
+        except Exception as e:
+            log.error(f"🔥 Unlink Error for device {device_id}: {e}", exc_info=True)
+            return False
+
 firebase_svc = FirebaseService()

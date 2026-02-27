@@ -210,3 +210,31 @@ def adopt_device(
         action="Adoption Signal Sent",
         status="success"
     )
+
+@router.delete("/{device_id}", response_model=CommandResponse)
+def delete_device_link(
+    device_id: str,
+    uid: str = Depends(get_current_user)
+):
+    """
+    Removes the link between the logged-in user and the device.
+    The device will become 'Unclaimed' and available for others.
+    """
+    # 1. Security Check (Inherited from your dependencies.py)
+    # This throws 403 AccessDenied if the user doesn't own it.
+    verify_ownership(device_id, uid)
+
+    # 2. Execute the Unlink logic
+    success = firebase_svc.unlink_device(uid, device_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to perform unlinking in the database."
+        )
+
+    return CommandResponse(
+        device=device_id,
+        action="Device successfully removed from account",
+        status="success"
+    )
