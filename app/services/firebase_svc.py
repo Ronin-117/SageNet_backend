@@ -104,7 +104,7 @@ class FirebaseService:
         except Exception as e:
             log.error(f"State Update Error: {e}")
     
-    def update_ai_status(self, device_id: str, channel: int, status: str, training_end: datetime = None, threshold: float = None):
+    def update_ai_status(self, device_id: str, channel: int, status: str, training_end: datetime = None, threshold: float = None, learning_start: datetime = None):
         """
         Updates the AI configuration for a specific channel.
         """
@@ -116,6 +116,8 @@ class FirebaseService:
                 data[f"ai_config.{channel}.training_end"] = training_end
             if threshold:
                 data[f"ai_config.{channel}.threshold"] = threshold
+
+            if learning_start: data[f"ai_config.{channel}.learning_start"] = learning_start
             
             self.db.collection('devices').document(device_id).update(data)
             log.info(f"AI Config updated for {device_id} Ch {channel}: {status}")

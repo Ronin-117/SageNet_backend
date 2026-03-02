@@ -67,16 +67,19 @@ def trigger_training(
     """
     try:
         verify_ownership(device_id, uid)
+
+        now = datetime.now(timezone.utc) 
         
         # Calculate end time
-        end_time = datetime.utcnow() + timedelta(hours=payload.duration_hours)
+        end_time = now + timedelta(hours=payload.duration_hours)
     
         # Update DB to "learning"
         success = firebase_svc.update_ai_status(
             device_id=device_id,
             channel=payload.channel_index,
             status="learning",
-            training_end=end_time
+            training_end=end_time,
+            learning_start=now 
         )
         
         if not success:

@@ -71,22 +71,44 @@ def job_anomaly_lifecycle():
 
                         # --- STATE: TRAINING ---
                         elif status == 'training':
-                            # Look back 7 days to gather sparse data
-                            data = influx_svc.get_training_data(device_id, channel, hours=168)
+                            # 1. Retrieve the start time from the config
+                            # Use .get() because older records might not have this field yet
+                            start_time = config.get('learning_start')
+                            
+                            # Fallback: If no start_time exists, look back 7 days (legacy support)
+                            if not start_time:
+                                start_time = datetime.now(timezone.utc) - timedelta(days=7)
+                            elif isinstance(start_time, str):
+                                start_time = datetime.fromisoformat(start_time)
+
+                            # 2. Fetch clean data starting ONLY from that timestamp
+                            data = influx_svc.get_training_data(device_id, channel, start_time)
                             
                             min_points = settings.ANOMALY_SEQUENCE_LENGTH * 5
                             
                             if len(data) >= min_points: 
-                                log.info(f"[{device_id} Ch{channel}] Training with {len(data)} points...")
+                                log.info(f"[{device_id} Ch{channel}] Training with {len(data)} clean points...")
                                 threshold = anomaly_svc.train_model(device_id, channel, data)
                                 if threshold > 0:
                                     firebase_svc.update_ai_status(
                                         device_id, channel, "monitoring", threshold=threshold
                                     )
                             else:
-                                log.warning(f"[{device_id} Ch{channel}] Insufficient Data ({len(data)}). Extending.")
+                                # --- INSUFFICIENT DATA LOGIC ---
+                                log.warning(f"[{device_id} Ch{channel}] Only {len(data)}/{min_points} points. Extending.")
+                                
+                                # Push the end time forward 12 hours
                                 new_end_time = datetime.now(timezone.utc) + timedelta(hours=12)
-                                firebase_svc.update_ai_status(device_id, channel, "learning", training_end=new_end_time)
+                                
+                                # Switch back to 'learning' so we check again later
+                                # We DO NOT update learning_start here, as we want to keep the 
+                                # data already collected and just add more to it.
+                                firebase_svc.update_ai_status(
+                                    device_id, 
+                                    channel, 
+                                    "learning", 
+                                    training_end=new_end_time
+                                )
 
                         # --- STATE: MONITORING ---
                         elif status == 'monitoring':

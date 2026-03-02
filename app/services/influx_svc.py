@@ -326,17 +326,21 @@ class InfluxService:
             log.error(f"Activity Query Error: {e}")
             raise e
 
-    def get_training_data(self, device_id: str, channel: int, hours: int) -> List[float]:
+    def get_training_data(self, device_id: str, channel: int, start_time: datetime) -> List[float]:
         """
         Fetches raw POWER data for training. 
         Filters out values < 5.0 Watts (Device OFF/Standby) to ensure model learns active patterns.
         """
         try:
             bucket = settings.INFLUX_BUCKET
+
+            # Convert python datetime to Influx string format
+            start_iso = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+
             # Query: Get Power for specific channel, filtered by value > 5W
             query = f'''
             from(bucket: "{bucket}")
-              |> range(start: -{hours}h)
+              |> range(start: {start_iso})
               |> filter(fn: (r) => r["_measurement"] == "energy_usage")
               |> filter(fn: (r) => r["device_id"] == "{device_id}")
               |> filter(fn: (r) => r["_field"] == "power_{channel}")
