@@ -1,128 +1,112 @@
- # ⚡ SageNet Energy Backend
-
- Enterprise-grade IoT Infrastructure for Real-Time Energy Monitoring & Analytics.
-
-
-![alt text](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python)
+<div align="center">
+ <img src="images/logo.png" alt="SageNet Logo" width="200"/>
+ <h1>SageNet Backend Infrastructure</h1>
+ <p><strong>Enterprise-Grade IoT Smart Grid & Energy Intelligence Platform</strong></p>
 
 
-![alt text](https://img.shields.io/badge/FastAPI-0.95-teal?style=for-the-badge&logo=fastapi)
+![alt text](https://img.shields.io/badge/Python-3.11-blue.svg)
 
 
-![alt text](https://img.shields.io/badge/Docker-Enabled-blue?style=for-the-badge&logo=docker)
+![alt text](https://img.shields.io/badge/FastAPI-0.100+-00a393.svg)
 
 
-![alt text](https://img.shields.io/badge/Status-Production-green?style=for-the-badge)
+![alt text](https://img.shields.io/badge/Docker-Containerized-2496ED.svg)
 
 
- ## 📖 Overview
+![alt text](https://img.shields.io/badge/InfluxDB-Time--Series-22ADF6.svg)
 
- SageNet Backend is the cloud infrastructure powering the SageNet Smart Energy Ecosystem. It is designed with a Microservices-ready architecture to handle high-throughput IoT telemetry, secure device control, and future AI/ML workloads.
+</div>
 
- The system follows Zero Trust Security principles, ensuring that every API request is authenticated via JWT and every device command is authorized via strict ownership rules.
+<br>
 
- ---
+## 📖 Overview
+SageNet is an advanced IoT backend designed to manage, analyze, and optimize residential power consumption. Built to handle high-frequency telemetry from custom ESP32 mesh networks, the backend is a decoupled, event-driven system leveraging Machine Learning for anomaly detection, predictive billing, and intelligent appliance recommendations.
 
- ## 🏗 Architecture
+Engineered with strict resource constraints in mind (optimized for Oracle Cloud Free Tier), the architecture employs lazy-loading ML models, distributed task queues, and asynchronous workers.
 
- The backend is containerized using Docker and orchestrated via Docker Compose. It consists of distinct services to ensure Resilience and Scalability.
+## 🏗️ System Architecture
 
- ### 1. The API Gateway (energy_api)
- * Tech: FastAPI (Python), Uvicorn.
- * Role: The "Commander". Handles User Authentication (Firebase), Device Control, and Historical Data retrieval.
- * Security: Protected by Caddy Reverse Proxy (Automatic HTTPS) and Firebase Admin SDK (JWT Validation).
+<div align="center">
+ <img src="images/architecture.png" alt="SageNet Architecture Diagram" width="800"/>
+</div>
 
- ### 2. The Telemetry Bridge (energy_bridge)
- * Tech: Paho-MQTT, InfluxDB Client.
- * Role: The "Ingestor". A robust, never-sleeping service that listens to the MQTT Broker.
- * Logic: Enriches raw sensor data with User Metadata (from Firebase) and writes it to the Time-Series Database (InfluxDB).
+The backend relies on a Decoupled Microservices Architecture communicating over localhost (Host Network Mode) to bypass strict cloud DNS limitations and maximize IPC performance.
 
- ### 3. The Infrastructure
- * Database (Hot): InfluxDB Cloud (Time-series data: Voltage, Current, Power).
- * Database (Cold): Firebase Firestore (Device Metadata, User Relationships).
- * Broker: HiveMQ Cloud (Secure MQTTS Messaging).
- * Proxy: Caddy (SSL Termination & Load Balancing).
+### 🔌 The Data Flow
+1. Edge Node: ESP32 sensors calculate raw RMS wattage and publish JSON to HiveMQ via MQTT.
+2. Ingestion (Bridge): The Python MQTT Bridge consumes telemetry, resolves device ownership via Firestore, and stores time-series data in InfluxDB.
+3. Real-Time Sync: Device states are instantly written to Firestore, allowing the Flutter App to react in <500ms via WebSockets.
+4. Intelligence (Analytics): Background cron-jobs run anomaly detection and bill forecasting.
+5. App Interface (API): FastAPI serves as the secure gatekeeper, handling JWT verification, hardware command routing, and historical data aggregation.
 
- ---
+---
 
- ## 📂 Directory Structure
+## ✨ Core Features
 
- text  smart-energy-backend/  ├── app/ # Main Application Source  │ ├── api/  │ │ └── v1/ # Versioned API Routes  │ │ ├── endpoints/ # Controllers (Devices, Analytics)  │ │ └── api.py # Router Aggregator  │ ├── core/ # System Config & Logging  │ ├── models/ # Pydantic Schemas (Data Validation)  │ ├── services/ # Business Logic (MQTT, Influx, Firebase)  │ ├── main_api.py # FastAPI Entry Point  │ └── main_bridge.py # MQTT Bridge Entry Point  ├── logs/ # Rotating Logs (Access & Errors)  ├── firmware/ # OTA Update Binaries  ├── Caddyfile # Reverse Proxy Configuration  ├── docker-compose.yml # Container Orchestration  └── Dockerfile # Python Runtime definition 
+* Zero-Trust Security: Firebase JWT Bearer authentication on all endpoints. Ownership validation is enforced at the database query layer.
+* Physics-Aware Anomaly Detection: Utilizes an On-Device PyTorch Transformer model to learn specific appliance patterns, clamped by statistical Z-Scores and physical wattage caps to prevent false positives during Inrush Currents.
+* Predictive Billing Engine: Employs an XGBoost Regressor to analyze the last 60 days of dynamic daily kWh usage and forecast month-end bills based on complex telescopic utility tariffs (e.g., KSEB).
+* Supervised RAG Shopping Agent: A distributed worker uses Selenium for live e-commerce scraping. Products are evaluated by a Dual-LLM Pipeline (Generator + Constitutional AI Supervisor) to recommend energy-efficient alternatives while preventing LLM hallucinations.
+* Mesh Network Management: Fully supports ESP-NOW Parent-Child hardware relationships. Handles Orphan Discovery, Satellite Adoption, and Secure Unlinking entirely through the cloud.
 
- ---
+---
 
- ## 🚀 Getting Started (Local Development)
+## 🛠️ Technology Stack
 
- ### Prerequisites
- * Python 3.10+
- * Docker & Docker Compose
- * serviceAccountKey.json (From Firebase Console)
+| Category | Technology | Purpose |
+| :--- | :--- | :--- |
+| Core Framework | FastAPI, Python 3.11 | High-performance async REST API. |
+| Time-Series DB | InfluxDB (Flux) | High-throughput sensor data ingestion & window aggregation. |
+| NoSQL DB / Auth| Firebase Firestore / Auth | State persistence, User Profiles, JWT Auth. |
+| Message Broker | Paho-MQTT & HiveMQ | IoT telemetry and command pub/sub. |
+| Task Queue | Redis | Distributed queue for asynchronous scraping jobs. |
+| Machine Learning | PyTorch, XGBoost | Anomaly inference and time-series forecasting. |
+| Generative AI | Ollama, Selenium | Web scraping and local quantized LLM inference. |
+| Infrastructure | Docker Compose | Containerized microservices (Host Network Mode). |
 
- ### 1. Environment Setup
- Clone the repository and create your secrets file:
+---
 
- bash  git clone https://github.com/Ronin-117/SageNet_backend.git  cd SageNet_backend  cp .env.example .env 
+## 📂 Microservice Breakdown
 
- Fill in your .env file:
- ini  # MQTT Config  MQTT_BROKER=your-cluster.hivemq.cloud  MQTT_PORT=8883  MQTT_USER=backend_service  MQTT_PASS=secure_password   # Database Config  INFLUX_URL=https://eu-central-1-1.aws.cloud2.influxdata.com  INFLUX_TOKEN=your_token  INFLUX_ORG=your_org  INFLUX_BUCKET=energy_raw   # Firebase  FIREBASE_CRED=serviceAccountKey.json 
+The system is split into 4 distinct containerized services defined in docker-compose.yml:
 
- ### 2. Run Locally
- You can run the API directly on your host machine for debugging:
+1. energy_api: The Commander. Exposes REST endpoints, validates tokens, and publishes commands back to the MQTT broker.
+2. energy_bridge: The Ingestor. A 24/7 daemon that subscribes to evt/+/telem and evt/+/proxy, unboxing mesh network data and routing it to databases.
+3. energy_analytics: The Brain. A scheduled worker that trains Deep Learning models dynamically, detects Vampire Loads, and triggers FCM Push Notifications for anomalies.
+4. energy_scraper_worker: The Shopper. Pops RAG tasks from Redis, controls a headless Chromium container, and interfaces with the LLM Supervisor.
 
- bash  # Create Virtual Environment  python -m venv venv  source venv/bin/activate # or venv\Scripts\activate on Windows   # Install Dependencies  pip install -r requirements.txt   # Start API  uvicorn app.main_api:app --reload --host 0.0.0.0 --port 8000 
+---
 
- ---
+## 🚀 Setup & Deployment
 
- ## ☁️ Deployment (Oracle Cloud / VPS)
+### Prerequisites
+* Docker & Docker Compose
+* HiveMQ Cluster Credentials
+* InfluxDB Cloud/Local Token
+* Firebase Admin SDK JSON (serviceAccountKey.json)
 
- The system is designed for Zero-Downtime Deployment using Docker.
+### 1. Environment Configuration
+Create a .env file in the root directory:
+env # MQTT CONFIG MQTT_BROKER=your-cluster.hivemq.cloud MQTT_PORT=8883 MQTT_USER=backend_service MQTT_PASS=your_secure_password  # INFLUXDB CONFIG INFLUX_URL=https://eu-central-1-1.aws.cloud2.influxdata.com INFLUX_ORG=your_org INFLUX_BUCKET=energy_raw INFLUX_TOKEN=your_token  # REDIS CONFIG REDIS_HOST=127.0.0.1 REDIS_PORT=6379 REDIS_PASS=YourRedisPassword 
 
- ### 1. Deploy Stack
- Upload the code to your server and run:
+### 2. Launch Services
+The project utilizes targeted Dockerfiles to optimize build caching (separating heavy ML dependencies from lightweight API dependencies).
 
- bash  # Build and Detach  docker compose up -d --build 
+bash # Build and run all services in detached mode docker compose up -d --build 
 
- ### 2. Verify Services
- Check the health of the containers:
+### 3. Verify Deployment
+* API Documentation: Navigate to http://<server-ip>:8000/docs to view the interactive Swagger UI.
+* Logs: Monitor the AI engine in real-time:
+ bash  docker logs -f energy_analytics 
 
- bash  docker ps  docker logs -f energy_api 
+---
 
- ---
+## 🧠 Advanced Machine Learning Notes
 
- ## 📚 API Documentation
+### Supervision-Based AI Alignment (Constitutional AI)
+To ensure the Shopping Assistant never recommends unsafe electrical appliances or hallucinates prices, the system implements a Multi-Agent Supervisor Architecture:
+1. Generator LLM (4-bit Quantized) processes scraped data and generates a recommendation.
+2. Supervisor LLM acts as an independent Red-Team filter. It evaluates the output against strict constraints (e.g., verifying BEE Star ratings and basic electrical laws). If the response violates safety policies, it is blocked.
 
- Once running, full interactive Swagger UI documentation is available at:
-
- * Local: http://localhost:8000/docs
- * Production: https://your-domain.com/docs
-
- ### Key Endpoints
-
-  Method  Endpoint  Description 
-  :---  :---  :--- 
-  POST  /api/v1/devices/{id}/control  Toggle Relay ON/OFF (Requires JWT) 
-  GET  /api/v1/devices/{id}/history  Fetch historical energy graphs 
-  GET  /api/v1/analytics/{id}/bill  Get real-time bill estimation 
-
- ---
-
- ## 🛡 Security Protocols
-
- 1. Transport Security: All external traffic is encrypted via SSL/TLS (HTTPS & MQTTS).
- 2. Authentication: Users are authenticated via Firebase Auth (Google Identity). Passwords are never stored on our servers.
- 3. Authorization: API enforces strict ownership checks. A user can only control devices linked to their User_UID in Firestore.
- 4. Network Isolation: The API container is not exposed directly. Traffic must pass through the Caddy Reverse Proxy.
-
- ---
-
- ## 🤝 Contributing
-
- 1. Fork the Project
- 2. Create your Feature Branch (git checkout -b feature/AmazingFeature)
- 3. Commit your Changes (git commit -m 'Add some AmazingFeature')
- 4. Push to the Branch (git push origin feature/AmazingFeature)
- 5. Open a Pull Request
-
- ---
-
- © 2025 SageNet Energy. Built for High Performance.
+### Lazy Loading Model Architecture
+To operate within strict RAM constraints, the PyTorch Anomaly Transformer uses a "Lazy Load & Dump" strategy. Models (.pth state dicts) are loaded from the disk into CPU memory exclusively during the millisecond of inference, and gc.collect() is explicitly called post-inference to prevent memory leaks.
