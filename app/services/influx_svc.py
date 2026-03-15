@@ -3,6 +3,7 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from app.core.config import settings
 from app.core.logger import setup_logger
+from datetime import datetime
 
 log = setup_logger("InfluxService")
 
